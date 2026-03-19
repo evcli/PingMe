@@ -8,8 +8,12 @@ function loadRules() {
   const currentUrl = window.location.href;
 
   chrome.storage.local.get(['monitorRules'], (result) => {
+    const currentHostname = window.location.hostname;
     const allRules = result.monitorRules || [];
-    rules = allRules.filter(rule => currentUrl.includes(rule.url));
+    rules = allRules.filter(rule => {
+      try { return new URL(rule.url).hostname === currentHostname; }
+      catch(e) { return currentUrl.includes(rule.url); }
+    });
 
     if (rules.length > 0) {
       console.log(`[PingMe] Active rules for this page:`, rules);
@@ -70,9 +74,16 @@ loadRules();
 // Re-load rules if storage changes (e.g., from popup)
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.monitorRules) {
-    const currentUrl = window.location.href;
+    const currentHostname = window.location.hostname;
     const allRules = changes.monitorRules.newValue || [];
-    rules = allRules.filter(rule => currentUrl.includes(rule.url));
+    rules = allRules.filter(rule => {
+      try {
+        return new URL(rule.url).hostname === currentHostname;
+      } catch (e) {
+        return window.location.href.includes(rule.url);
+      }
+    });
+
     // Clear triggered set for newly added rules if needed (or keep it for the session)
     console.log(`[PingMe] Rules updated:`, rules);
     checkRules();

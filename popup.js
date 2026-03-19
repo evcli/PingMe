@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const monitorType = document.getElementById('monitor-type');
     const monitorValue = document.getElementById('monitor-value');
     const addMonitorBtn = document.getElementById('add-monitor-btn');
+    const clearAllMonitorsBtn = document.getElementById('clear-all-monitors-btn');
     const monitorList = document.getElementById('monitor-list');
 
     let currentUrl = '';
@@ -137,42 +138,85 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Enter') addMonitorRule();
     });
 
+    clearAllMonitorsBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear all monitoring rules across all pages?')) {
+            clearAllMonitors();
+        }
+    });
+
     function loadMonitorRules() {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const allRules = result.monitorRules || [];
-            // filter for current page
-            const pageRules = allRules.filter(r => currentUrl.includes(r.url));
-            displayMonitorRules(pageRules);
+            displayMonitorRules(allRules);
         });
     }
 
-    function displayMonitorRules(rules) {
-        if (rules.length === 0) {
-            monitorList.innerHTML = '<div class="empty-state">No rules for this page</div>';
+    function displayMonitorRules(allRules) {
+        if (allRules.length === 0) {
+            monitorList.innerHTML = '<div class="empty-state">No rules active</div>';
             return;
         }
 
-        monitorList.innerHTML = '';
-        rules.forEach(rule => {
-            const item = document.createElement('div');
-            item.className = 'item';
-            
-            const badgeClass = rule.type === 'text' ? 'badge-text' : 'badge-selector';
-            const badgeLabel = rule.type === 'text' ? 'TEXT' : 'CSS';
+        let currentHostname = '';
+        try { currentHostname = new URL(currentUrl).hostname; } catch(e) {}
 
-            item.innerHTML = `
-                <div class="item-info">
-                    <span class="note">${rule.value} <span class="badge ${badgeClass}">${badgeLabel}</span></span>
-                    <span class="note" style="font-size: 10px; opacity: 0.5;">URL: ${new URL(rule.url).hostname}</span>
-                </div>
-                <button class="delete-btn" data-id="${rule.id}">×</button>
-            `;
-
-            const delBtn = item.querySelector('.delete-btn');
-            delBtn.addEventListener('click', () => removeMonitorRule(rule.id));
-
-            monitorList.appendChild(item);
+        const pageRules = allRules.filter(r => {
+            try { return new URL(r.url).hostname === currentHostname; } 
+            catch(e) { return currentUrl.includes(r.url); }
         });
+        const otherRules = allRules.filter(r => {
+            try { return new URL(r.url).hostname !== currentHostname; }
+            catch(e) { return !currentUrl.includes(r.url); }
+        });
+
+        monitorList.innerHTML = '';
+
+        if (pageRules.length > 0) {
+            const header = document.createElement('div');
+            header.className = 'list-header';
+            header.textContent = 'This Site';
+            monitorList.appendChild(header);
+            
+            pageRules.forEach(rule => {
+                monitorList.appendChild(createRuleItem(rule));
+            });
+        }
+
+        if (otherRules.length > 0) {
+            const header = document.createElement('div');
+            header.className = 'list-header';
+            header.style.marginTop = '12px';
+            header.textContent = 'Other Sites';
+            monitorList.appendChild(header);
+
+            otherRules.forEach(rule => {
+                monitorList.appendChild(createRuleItem(rule));
+            });
+        }
+    }
+
+    function createRuleItem(rule) {
+        const item = document.createElement('div');
+        item.className = 'item';
+        
+        const badgeClass = rule.type === 'text' ? 'badge-text' : 'badge-selector';
+        const badgeLabel = rule.type === 'text' ? 'TEXT' : 'CSS';
+        
+        let displayUrl = '';
+        try { displayUrl = new URL(rule.url).hostname; } catch(e) { displayUrl = rule.url; }
+
+        item.innerHTML = `
+            <div class="item-info">
+                <span class="note">${rule.value} <span class="badge ${badgeClass}">${badgeLabel}</span></span>
+                <span class="note" style="font-size: 10px; opacity: 0.5;">URL: ${displayUrl}</span>
+            </div>
+            <button class="delete-btn" data-id="${rule.id}">×</button>
+        `;
+
+        const delBtn = item.querySelector('.delete-btn');
+        delBtn.addEventListener('click', () => removeMonitorRule(rule.id));
+
+        return item;
     }
 
     function removeMonitorRule(id) {
@@ -180,6 +224,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const rules = (result.monitorRules || []).filter(r => r.id !== id);
             chrome.storage.local.set({ monitorRules: rules }, loadMonitorRules);
         });
+    }
+
+    function clearAllMonitors() {
+        chrome.storage.local.set({ monitorRules: [] }, loadMonitorRules);
     }
 
     // --- HELPERS ---
