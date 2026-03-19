@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PingMe</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>PingMe</h1>
+        </header>
+
+        <!-- Quick Timer Reminder -->
+        <div class="section" id="reminder-section">
+            <h2>Quick Reminder</h2>
+            <div class="input-group">
+                <div class="row">
+                    <input type="number" id="timer-minutes" placeholder="Minutes (e.g., 20)" min="1" autofocus style="flex: 1;">
+                    <button id="add-reminder-btn">Set</button>
+                </div>
+                <input type="text" id="timer-note" placeholder="Add a note (optional)">
+            </div>
+            <div class="list" id="reminder-list">
+                <!-- Reminders will be injected here -->
+                <div class="empty-state">No active reminders</div>
+            </div>
+        </div>
+
+        <!-- Webpage Content Monitoring -->
+        <div class="section" id="monitor-section">
+            <h2>Page Monitoring</h2>
+            <div class="input-group">
+                <div class="row">
+                    <select id="monitor-type" style="flex: 0.4;">
+                        <option value="text">Text Content</option>
+                        <option value="selector">CSS Selector</option>
+                    </select>
+                    <input type="text" id="monitor-value" placeholder="Enter text or selector" style="flex: 1;">
+                </div>
+                <button id="add-monitor-btn">Start Monitoring Current Page</button>
+            </div>
+            <div class="list" id="monitor-list">
+                <!-- Rules for current URL will be injected here -->
+                <div class="empty-state">No rules for this page</div>
+            </div>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
