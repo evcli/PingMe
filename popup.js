@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         reminderList.innerHTML = '';
-        reminders.sort((a,b) => a.triggerTime - b.triggerTime).forEach(reminder => {
+        reminders.sort((a, b) => a.triggerTime - b.triggerTime).forEach(reminder => {
             const item = document.createElement('div');
             item.className = 'item';
 
@@ -107,9 +107,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const addMonitorRule = () => {
         const type = monitorType.value;
         const val = monitorValue.value.trim();
+        const restrictToPath = document.getElementById('path-lock').checked;
 
         if (!val) {
-            alert('Please enter a text value or CSS selector.');
+            alert('Please enter a text value or CSS/XPath selector.');
             return;
         }
 
@@ -119,6 +120,8 @@ document.addEventListener('DOMContentLoaded', () => {
             url: currentUrl,
             type,
             value: val,
+            isActive: true,
+            restrictToPath: restrictToPath,
             createdAt: Date.now()
         };
 
@@ -127,6 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rules.push(rule);
             chrome.storage.local.set({ monitorRules: rules }, () => {
                 monitorValue.value = '';
+                document.getElementById('path-lock').checked = false;
                 loadMonitorRules();
             });
         });
@@ -158,15 +162,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         let currentHostname = '';
-        try { currentHostname = new URL(currentUrl).hostname; } catch(e) {}
+        try { currentHostname = new URL(currentUrl).hostname; } catch (e) { }
 
         const pageRules = allRules.filter(r => {
-            try { return new URL(r.url).hostname === currentHostname; } 
-            catch(e) { return currentUrl.includes(r.url); }
+            try { return new URL(r.url).hostname === currentHostname; }
+            catch (e) { return currentUrl.includes(r.url); }
         });
         const otherRules = allRules.filter(r => {
             try { return new URL(r.url).hostname !== currentHostname; }
-            catch(e) { return !currentUrl.includes(r.url); }
+            catch (e) { return !currentUrl.includes(r.url); }
         });
 
         monitorList.innerHTML = '';
@@ -176,7 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
             header.className = 'list-header';
             header.textContent = 'This Site';
             monitorList.appendChild(header);
-            
+
             pageRules.forEach(rule => {
                 monitorList.appendChild(createRuleItem(rule));
             });
@@ -198,25 +202,90 @@ document.addEventListener('DOMContentLoaded', () => {
     function createRuleItem(rule) {
         const item = document.createElement('div');
         item.className = 'item';
-        
-        const badgeClass = rule.type === 'text' ? 'badge-text' : 'badge-selector';
-        const badgeLabel = rule.type === 'text' ? 'TEXT' : 'CSS';
-        
+
+        let badgeClass = 'badge-text';
+        let badgeLabel = 'TEXT';
+        if (rule.type === 'selector') {
+            badgeClass = 'badge-selector';
+            badgeLabel = 'CSS';
+        } else if (rule.type === 'xpath') {
+            badgeClass = 'badge-xpath'; // Make sure to add this in CSS
+            badgeLabel = 'XPATH';
+        }
+
         let displayUrl = '';
-        try { displayUrl = new URL(rule.url).hostname; } catch(e) { displayUrl = rule.url; }
+        try { displayUrl = new URL(rule.url).hostname; } catch (e) { displayUrl = rule.url; }
+
+        const scopeTitle = rule.restrictToPath ? 'Currently restricted to this exact Path. Click to switch to Site-wide.' : 'Currently monitoring the entire Site. Click to lock to this specific Path.';
+        const opacities = rule.isActive ? '1' : '0.5';
 
         item.innerHTML = `
-            <div class="item-info">
-                <span class="note">${rule.value} <span class="badge ${badgeClass}">${badgeLabel}</span></span>
-                <span class="note" style="font-size: 10px; opacity: 0.5;">URL: ${displayUrl}</span>
+            <div class="row" style="opacity: ${opacities}; align-items: center;">
+                <div class="item-info">
+                    <span class="note" style="display: flex; align-items: center; gap: 8px;">
+                        <span class="path-badge ${rule.restrictToPath ? 'active' : ''}" title="${scopeTitle}">PATH</span>
+                        <span style="flex: 1;">${rule.value}</span>
+                        <span class="badge ${badgeClass}">${badgeLabel}</span>
+                    </span>
+                    <span class="note" style="font-size: 10px; opacity: 0.5;">Origin: ${displayUrl}</span>
+                </div>
+                <div class="row" style="gap: 8px;">
+                    <label class="switch" title="Monitor Active Status">
+                        <input type="checkbox" class="toggle-active" ${rule.isActive ? 'checked' : ''}>
+                        <span class="slider"></span>
+                    </label>
+                    <button class="delete-btn" data-id="${rule.id}">×</button>
+                </div>
             </div>
-            <button class="delete-btn" data-id="${rule.id}">×</button>
         `;
+
+        const pathBadge = item.querySelector('.path-badge');
+        pathBadge.addEventListener('click', () => toggleRulePathLock(rule.id, !rule.restrictToPath));
+
+        const activeToggle = item.querySelector('.toggle-active');
+        activeToggle.addEventListener('change', () => toggleRuleActive(rule.id, activeToggle.checked));
 
         const delBtn = item.querySelector('.delete-btn');
         delBtn.addEventListener('click', () => removeMonitorRule(rule.id));
 
         return item;
+    }
+
+    function toggleRulePathLock(id, restrictToPath) {
+        chrome.storage.local.get(['monitorRules'], (result) => {
+            const rules = result.monitorRules || [];
+            const updatedRules = rules.map(rule => {
+                if (rule.id === id) {
+                    return { 
+                        ...rule, 
+                        restrictToPath, 
+                        // Always re-bind the target URL to the current page when users tweak the Path setting
+                        url: currentUrl 
+                    };
+                }
+                return rule;
+            });
+            chrome.storage.local.set({ monitorRules: updatedRules }, loadMonitorRules);
+        });
+    }
+
+    function toggleRuleActive(id, isActive) {
+        chrome.storage.local.get(['monitorRules'], (result) => {
+            const rules = result.monitorRules || [];
+            const updatedRules = rules.map(rule => {
+                if (rule.id === id) {
+                    return { 
+                        ...rule, 
+                        isActive,
+                        // If turning the monitor ON and it's set to "Path Lock",
+                        // automatically associate it with the page the user is currently looking at.
+                        url: (isActive && rule.restrictToPath) ? currentUrl : rule.url
+                    };
+                }
+                return rule;
+            });
+            chrome.storage.local.set({ monitorRules: updatedRules }, loadMonitorRules);
+        });
     }
 
     function removeMonitorRule(id) {

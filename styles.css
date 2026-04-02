@@ -71,7 +71,8 @@ header h1 {
     gap: 10px;
 }
 
-input, select {
+input,
+select {
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--glass-border);
     border-radius: 8px;
@@ -165,8 +166,15 @@ button:active {
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .item-info {
@@ -229,5 +237,97 @@ button:active {
     margin-left: 6px;
 }
 
-.badge-text { color: #4facfe; }
-.badge-selector { color: #fccb90; }
+.badge-text {
+    color: #4facfe;
+}
+
+.badge-selector {
+    color: #fccb90;
+}
+
+.badge-xpath {
+    background: rgba(155, 89, 182, 0.1);
+    color: #9b59b2;
+}
+
+.badge-locked {
+    background: rgba(149, 165, 166, 0.1);
+    color: #7f8c8d;
+    border: 1px solid rgba(149, 165, 166, 0.2);
+}
+
+/* Simplified PATH Badge Toggle */
+.path-badge {
+    font-size: 8px;
+    font-weight: 800;
+    padding: 2px 5px;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    background: rgba(0, 0, 0, 0.2);
+    color: rgba(255, 255, 255, 0.3);
+    border: 1.5px solid rgba(255, 255, 255, 0.1);
+}
+
+.path-badge.active {
+    background: rgba(52, 152, 219, 0.2);
+    color: var(--accent);
+    border-color: rgba(52, 152, 219, 0.5);
+    box-shadow: 0 0 8px rgba(52, 152, 219, 0.2);
+}
+
+.path-badge:hover {
+    transform: scale(1.1);
+    filter: brightness(1.2);
+}
+
+.path-badge:active {
+    transform: scale(0.95);
+}
+
+/* Switch Toggle - iOS Style */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 28px;
+    height: 16px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 16px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked+.slider {
+    background-color: var(--accent);
+}
+
+input:checked+.slider:before {
+    transform: translateX(12px);
+}

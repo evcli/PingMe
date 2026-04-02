@@ -23,7 +23,7 @@ function updateExtensionIcon() {
     };
 
     chrome.action.setIcon({ path: iconPath });
-    
+
     // Set badge text based on total count
     if (isActive) {
       chrome.action.setBadgeText({ text: count.toString() });
@@ -74,7 +74,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'MONITOR_TRIGGERED') {
     const notificationId = `monitor-${Date.now()}`;
-    
+
     // Store tab information for this notification
     if (sender.tab) {
       notificationTabMap.set(notificationId, {
@@ -90,6 +90,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       message: request.message,
       priority: 2
     });
+
+    // Auto-disable the rule after it triggers
+    if (request.ruleId) {
+      chrome.storage.local.get(['monitorRules'], (result) => {
+        const rules = result.monitorRules || [];
+        const updatedRules = rules.map(rule => {
+          if (rule.id === request.ruleId) {
+            return { ...rule, isActive: false };
+          }
+          return rule;
+        });
+        chrome.storage.local.set({ monitorRules: updatedRules });
+      });
+    }
+
     sendResponse({ success: true });
   }
 });

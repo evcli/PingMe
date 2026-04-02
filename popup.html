@@ -36,8 +36,13 @@
                     <select id="monitor-type" style="flex: 0.4;">
                         <option value="text">Text Content</option>
                         <option value="selector">CSS Selector</option>
+                        <option value="xpath">XPath Selector</option>
                     </select>
                     <input type="text" id="monitor-value" placeholder="Enter text or selector" style="flex: 1;">
+                </div>
+                <div class="row" style="margin-top: 8px; justify-content: flex-start; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="path-lock" style="width: auto; margin: 0;">
+                    <label for="path-lock" style="font-size: 11px; cursor: pointer; user-select: none;">Path Lock (Only monitor current exact URL)</label>
                 </div>
                 <div class="row">
                     <button id="add-monitor-btn" style="flex: 1;">Start Monitoring Current Page</button>
