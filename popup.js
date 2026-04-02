@@ -201,7 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function createRuleItem(rule) {
         const item = document.createElement('div');
-        item.className = 'item';
+        item.className = 'item monitor-item';
 
         let badgeClass = 'badge-text';
         let badgeLabel = 'TEXT';
@@ -213,34 +213,48 @@ document.addEventListener('DOMContentLoaded', () => {
             badgeLabel = 'XPATH';
         }
 
-        let displayUrl = '';
-        try { displayUrl = new URL(rule.url).hostname; } catch (e) { displayUrl = rule.url; }
+        let hostname = '';
+        let fullPath = '';
+        try { 
+            const urlObject = new URL(rule.url);
+            hostname = urlObject.hostname; 
+            fullPath = urlObject.pathname; // 只保留路径，去除 search (query)
+            if (fullPath === '/') fullPath = '';
+        } catch (e) { 
+            hostname = rule.url; 
+        }
 
-        const scopeTitle = rule.restrictToPath ? 'Currently restricted to this exact Path. Click to switch to Site-wide.' : 'Currently monitoring the entire Site. Click to lock to this specific Path.';
+        const scopeLabel = rule.restrictToPath ? 'Path' : 'Site';
+        const scopeIcon = rule.restrictToPath ? '📍' : '🌐';
         const opacities = rule.isActive ? '1' : '0.5';
 
         item.innerHTML = `
-            <div class="row" style="opacity: ${opacities}; align-items: center; width: 100%;">
-                <div class="item-info">
-                    <span class="note" style="display: flex; align-items: center; gap: 8px;">
-                        <span class="path-badge ${rule.restrictToPath ? 'active' : ''}" title="${scopeTitle}">PATH</span>
-                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${rule.value}</span>
+            <div class="monitor-content" style="opacity: ${opacities};">
+                <div class="monitor-main">
+                    <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" title="Current scope: ${scopeLabel}. Click to switch.">
+                        <span class="scope-icon" style="font-size: 10px;">${scopeIcon}</span>
+                        <span class="scope-text">${scopeLabel}</span>
+                    </div>
+                    <div class="monitor-value-container">
+                        <span class="monitor-value" data-full-text="${rule.value}">${rule.value}</span>
                         <span class="badge ${badgeClass}">${badgeLabel}</span>
-                    </span>
-                    <span class="note" style="font-size: 10px; opacity: 0.5;">Origin: ${displayUrl}</span>
+                    </div>
                 </div>
-                <div class="row" style="gap: 8px; flex-shrink: 0;">
-                    <label class="switch" title="Monitor Active Status">
-                        <input type="checkbox" class="toggle-active" ${rule.isActive ? 'checked' : ''}>
-                        <span class="slider"></span>
-                    </label>
-                    <button class="delete-btn" data-id="${rule.id}">×</button>
+                <div class="monitor-meta">
+                    <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">Origin: ${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
                 </div>
+            </div>
+            <div class="monitor-actions">
+                <label class="switch" title="Monitor Active Status">
+                    <input type="checkbox" class="toggle-active" ${rule.isActive ? 'checked' : ''}>
+                    <span class="slider"></span>
+                </label>
+                <button class="delete-btn" data-id="${rule.id}">×</button>
             </div>
         `;
 
-        const pathBadge = item.querySelector('.path-badge');
-        pathBadge.addEventListener('click', () => toggleRulePathLock(rule.id, !rule.restrictToPath));
+        const scopeBadge = item.querySelector('.monitor-scope');
+        scopeBadge.addEventListener('click', () => toggleRulePathLock(rule.id, !rule.restrictToPath));
 
         const activeToggle = item.querySelector('.toggle-active');
         activeToggle.addEventListener('change', () => toggleRuleActive(rule.id, activeToggle.checked));
@@ -305,6 +319,63 @@ document.addEventListener('DOMContentLoaded', () => {
         if (minutes > 0) return `${minutes}m ${seconds}s`;
         return `${seconds}s`;
     }
+
+    // --- GLOBAL TOOLTIP LOGIC ---
+    const globalTooltip = document.getElementById('global-tooltip');
+
+    const setupTooltip = () => {
+        const handleOver = (e) => {
+            const target = e.target.closest('[data-full-text]');
+            if (!target) return;
+            
+            // Ignore internal movements
+            if (e.relatedTarget && target.contains(e.relatedTarget)) return;
+
+            const text = target.getAttribute('data-full-text');
+            globalTooltip.textContent = text;
+            globalTooltip.style.display = 'block';
+
+            const rect = target.getBoundingClientRect();
+            
+            // Align position perfectly with the original text considering smaller padding (4px 8px)
+            let finalX = rect.left - 8; 
+            let finalY = rect.top - 4;
+
+            const width = globalTooltip.offsetWidth;
+            const height = globalTooltip.offsetHeight;
+            const winWidth = window.innerWidth;
+            const winHeight = window.innerHeight;
+
+            // Constrain strictly within window
+            if (finalX + width > winWidth - 8) finalX = Math.max(8, winWidth - width - 8);
+            if (finalY + height > winHeight - 8) finalY = Math.max(8, winHeight - height - 8);
+            if (finalX < 8) finalX = 8;
+            if (finalY < 8) finalY = 8;
+
+            globalTooltip.style.left = `${finalX}px`;
+            globalTooltip.style.top = `${finalY}px`;
+        };
+
+        const handleOut = (e) => {
+            const target = e.target.closest('[data-full-text]');
+            if (!target) return;
+
+            // Ignore internal movements
+            if (e.relatedTarget && target.contains(e.relatedTarget)) return;
+
+            globalTooltip.style.display = 'none';
+        };
+
+        document.body.addEventListener('mouseover', handleOver);
+        document.body.addEventListener('mouseout', handleOut);
+        
+        // Hide tooltip immediately on any scroll to prevent floating artifacts
+        window.addEventListener('scroll', () => {
+            globalTooltip.style.display = 'none';
+        }, true);
+    };
+
+    setupTooltip();
 
     setInterval(() => {
         loadReminders();
