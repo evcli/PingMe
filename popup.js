@@ -189,7 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (otherRules.length > 0) {
             const header = document.createElement('div');
             header.className = 'list-header';
-            header.style.marginTop = '12px';
+            header.style.marginTop = '8px';
             header.textContent = 'Other Sites';
             monitorList.appendChild(header);
 
@@ -209,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
             badgeClass = 'badge-selector';
             badgeLabel = 'CSS';
         } else if (rule.type === 'xpath') {
-            badgeClass = 'badge-xpath'; // Make sure to add this in CSS
+            badgeClass = 'badge-xpath';
             badgeLabel = 'XPATH';
         }
 
@@ -220,16 +220,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const opacities = rule.isActive ? '1' : '0.5';
 
         item.innerHTML = `
-            <div class="row" style="opacity: ${opacities}; align-items: center;">
+            <div class="row" style="opacity: ${opacities}; align-items: center; width: 100%;">
                 <div class="item-info">
                     <span class="note" style="display: flex; align-items: center; gap: 8px;">
                         <span class="path-badge ${rule.restrictToPath ? 'active' : ''}" title="${scopeTitle}">PATH</span>
-                        <span style="flex: 1;">${rule.value}</span>
+                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${rule.value}</span>
                         <span class="badge ${badgeClass}">${badgeLabel}</span>
                     </span>
                     <span class="note" style="font-size: 10px; opacity: 0.5;">Origin: ${displayUrl}</span>
                 </div>
-                <div class="row" style="gap: 8px;">
+                <div class="row" style="gap: 8px; flex-shrink: 0;">
                     <label class="switch" title="Monitor Active Status">
                         <input type="checkbox" class="toggle-active" ${rule.isActive ? 'checked' : ''}>
                         <span class="slider"></span>
@@ -259,7 +259,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     return { 
                         ...rule, 
                         restrictToPath, 
-                        // Always re-bind the target URL to the current page when users tweak the Path setting
                         url: currentUrl 
                     };
                 }
@@ -277,8 +276,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     return { 
                         ...rule, 
                         isActive,
-                        // If turning the monitor ON and it's set to "Path Lock",
-                        // automatically associate it with the page the user is currently looking at.
                         url: (isActive && rule.restrictToPath) ? currentUrl : rule.url
                     };
                 }
@@ -299,8 +296,6 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.storage.local.set({ monitorRules: [] }, loadMonitorRules);
     }
 
-    // --- HELPERS ---
-
     function formatRemainingTime(ms) {
         const seconds = Math.floor((ms / 1000) % 60);
         const minutes = Math.floor((ms / 1000 / 60) % 60);
@@ -311,7 +306,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${seconds}s`;
     }
 
-    // Refresh display every second to update countdowns
     setInterval(() => {
         loadReminders();
     }, 1000);

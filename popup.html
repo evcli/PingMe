@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PingMe</title>
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -17,7 +19,8 @@
             <h2>Quick Reminder</h2>
             <div class="input-group">
                 <div class="row">
-                    <input type="number" id="timer-minutes" placeholder="Minutes (e.g., 20)" min="1" autofocus style="flex: 1;">
+                    <input type="number" id="timer-minutes" placeholder="Minutes (e.g., 20)" min="1" autofocus
+                        style="flex: 1;">
                     <button id="add-reminder-btn">Set</button>
                 </div>
                 <input type="text" id="timer-note" placeholder="Add a note (optional)">
@@ -34,18 +37,20 @@
             <div class="input-group">
                 <div class="row">
                     <select id="monitor-type" style="flex: 0.4;">
-                        <option value="text">Text Content</option>
-                        <option value="selector">CSS Selector</option>
-                        <option value="xpath">XPath Selector</option>
+                        <option value="text">Text</option>
+                        <option value="selector">CSS</option>
+                        <option value="xpath">XPath</option>
                     </select>
-                    <input type="text" id="monitor-value" placeholder="Enter text or selector" style="flex: 1;">
+                    <input type="text" id="monitor-value" placeholder="Text or selector..."
+                        style="flex: 1; min-width: 0;">
                 </div>
-                <div class="row" style="margin-top: 8px; justify-content: flex-start; align-items: center; gap: 8px;">
+                <div class="row" style="margin-top: 6px; justify-content: flex-start; align-items: center; gap: 8px;">
                     <input type="checkbox" id="path-lock" style="width: auto; margin: 0;">
-                    <label for="path-lock" style="font-size: 11px; cursor: pointer; user-select: none;">Path Lock (Only monitor current exact URL)</label>
+                    <label for="path-lock" style="font-size: 11px; cursor: pointer; user-select: none;">Path Lock (Exact
+                        URL only)</label>
                 </div>
                 <div class="row">
-                    <button id="add-monitor-btn" style="flex: 1;">Start Monitoring Current Page</button>
+                    <button id="add-monitor-btn" style="flex: 1;">Monitor Page</button>
                     <button id="clear-all-monitors-btn" class="btn-secondary">Clear All</button>
                 </div>
             </div>
@@ -57,4 +62,5 @@
     </div>
     <script src="popup.js"></script>
 </body>
+
 </html>
