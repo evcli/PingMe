@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+
+
     // --- REMINDER LOGIC ---
 
     const addReminder = () => {
@@ -108,6 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const type = monitorType.value;
         const val = monitorValue.value.trim();
         const restrictToPath = document.getElementById('path-lock').checked;
+        const autoStopEl = document.getElementById('auto-stop');
+        const autoStop = autoStopEl ? autoStopEl.checked : true;
 
         if (!val) {
             alert('Please enter a text value or CSS/XPath selector.');
@@ -122,6 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
             value: val,
             isActive: true,
             restrictToPath: restrictToPath,
+            autoStop: autoStop,
             createdAt: Date.now()
         };
 
@@ -228,6 +233,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const scopeIcon = rule.restrictToPath ? '📍' : '🌐';
         const opacities = rule.isActive ? '1' : '0.5';
 
+        const isAutoStop = rule.autoStop !== false;
+        const autoStopLabel = isAutoStop ? 'ONCE' : 'CONT';
+        const autoStopIcon = isAutoStop ? '🛑' : '🔄';
+
         item.innerHTML = `
             <div class="monitor-content" style="opacity: ${opacities};">
                 <div class="monitor-main">
@@ -241,6 +250,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
                 <div class="monitor-meta">
+                    <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" title="Trigger behavior: ${isAutoStop ? 'Stop after trigger (Once)' : 'Keep monitoring (Continuous)'}. Click to switch." ${!isAutoStop ? 'style="background: rgba(255, 255, 255, 0.05); color: #ccc;"' : ''}>
+                        <span class="scope-icon" style="font-size: 10px; margin-right: 2px;">${autoStopIcon}</span>
+                        <span class="scope-text">${autoStopLabel}</span>
+                    </div>
                     <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">Origin: ${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
                 </div>
             </div>
@@ -253,8 +266,15 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
 
-        const scopeBadge = item.querySelector('.monitor-scope');
-        scopeBadge.addEventListener('click', () => toggleRulePathLock(rule.id, !rule.restrictToPath));
+        const scopeBadge = item.querySelector('.monitor-scope:not(.monitor-autostop)');
+        if (scopeBadge) {
+            scopeBadge.addEventListener('click', () => toggleRulePathLock(rule.id, !rule.restrictToPath));
+        }
+
+        const autoStopBadge = item.querySelector('.monitor-autostop');
+        if (autoStopBadge) {
+            autoStopBadge.addEventListener('click', () => toggleRuleAutoStop(rule.id, !isAutoStop));
+        }
 
         const activeToggle = item.querySelector('.toggle-active');
         activeToggle.addEventListener('change', () => toggleRuleActive(rule.id, activeToggle.checked));
@@ -268,13 +288,50 @@ document.addEventListener('DOMContentLoaded', () => {
     function toggleRulePathLock(id, restrictToPath) {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
+            const rule = rules.find(r => r.id === id);
+            
+            if (!rule) return;
+
+            let newUrl = rule.url;
+
+            if (restrictToPath) {
+                // Trying to switch to 'Path' lock
+                try {
+                    const ruleHostname = new URL(rule.url).hostname;
+                    let currentHostname = '';
+                    try { currentHostname = new URL(currentUrl).hostname; } catch(e) {}
+                    
+                    if (ruleHostname !== currentHostname) {
+                        alert(`Cannot lock to path: You must be on the same domain (${ruleHostname}) to bind to a path.`);
+                        return; // Abort the change
+                    }
+                    // Since domains match, bind to the current path
+                    newUrl = currentUrl;
+                } catch (e) {
+                    console.error("URL Parsing error", e);
+                }
+            }
+
+            const updatedRules = rules.map(r => {
+                if (r.id === id) {
+                    return { 
+                        ...r, 
+                        restrictToPath, 
+                        url: newUrl 
+                    };
+                }
+                return r;
+            });
+            chrome.storage.local.set({ monitorRules: updatedRules }, loadMonitorRules);
+        });
+    }
+
+    function toggleRuleAutoStop(id, autoStop) {
+        chrome.storage.local.get(['monitorRules'], (result) => {
+            const rules = result.monitorRules || [];
             const updatedRules = rules.map(rule => {
                 if (rule.id === id) {
-                    return { 
-                        ...rule, 
-                        restrictToPath, 
-                        url: currentUrl 
-                    };
+                    return { ...rule, autoStop };
                 }
                 return rule;
             });
@@ -289,8 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (rule.id === id) {
                     return { 
                         ...rule, 
-                        isActive,
-                        url: (isActive && rule.restrictToPath) ? currentUrl : rule.url
+                        isActive
                     };
                 }
                 return rule;

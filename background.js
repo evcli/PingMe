@@ -60,7 +60,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         iconUrl: 'icons/icon128.png',
         title: 'PingMe Reminder',
         message: reminder.note || 'Timer is up!',
-        priority: 2
+        priority: 2,
+        requireInteraction: true
       });
 
       // Remove the triggered reminder from storage
@@ -88,16 +89,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       iconUrl: 'icons/icon128.png',
       title: 'PingMe Monitoring Alert',
       message: request.message,
-      priority: 2
+      priority: 2,
+      requireInteraction: true
     });
 
-    // Auto-disable the rule after it triggers
+    // Auto-disable the rule after it triggers (if enabled)
     if (request.ruleId) {
       chrome.storage.local.get(['monitorRules'], (result) => {
         const rules = result.monitorRules || [];
         const updatedRules = rules.map(rule => {
           if (rule.id === request.ruleId) {
-            return { ...rule, isActive: false };
+            // Default to true for older rules
+            const autoStop = rule.autoStop !== false;
+            if (autoStop) {
+              return { ...rule, isActive: false };
+            }
           }
           return rule;
         });
