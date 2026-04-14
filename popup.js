@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const monitorList = document.getElementById('monitor-list');
 
     let currentUrl = '';
+    let discoveredTasks = []; // Store tasks for reuse in list items
 
     // Initialize: Get current URL and load data
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -20,8 +21,51 @@ document.addEventListener('DOMContentLoaded', () => {
             currentUrl = tabs[0].url;
             loadReminders();
             loadMonitorRules();
+            loadDynamicTasks(); // New dynamic discovery
         }
     });
+
+    /**
+     * Dynamically discovers tasks from manifest.json and task file metadata
+     */
+    async function loadDynamicTasks() {
+        const taskSelect = document.getElementById('monitor-task');
+        if (!taskSelect) return;
+
+        const manifest = chrome.runtime.getManifest();
+        // Look for scripts in tasks/ folder that follow the task_ prefix convention
+        const scripts = manifest.content_scripts[0].js || [];
+        const taskFiles = scripts.filter(s => s.includes('/task_'));
+
+        for (const file of taskFiles) {
+            try {
+                const response = await fetch(chrome.runtime.getURL(file));
+                const content = await response.text();
+                
+                // Get path relative to 'tasks/' and clean up filename
+                const relativePath = file.replace('tasks/', '');
+                const parts = relativePath.split('/');
+                const fileName = parts.pop().replace('.js', '').replace(/^task_/, '');
+                const folderPath = parts.join('/');
+                
+                // Final ID and display name: folder:name (e.g., pipeline:deploy)
+                const taskId = folderPath ? `${folderPath}:${fileName}` : fileName;
+                const taskDisplayName = taskId;
+                
+                // Save to global list
+                discoveredTasks.push({ id: taskId, name: taskDisplayName });
+
+                const option = document.createElement('option');
+                option.value = taskId;
+                option.textContent = taskDisplayName;
+                taskSelect.appendChild(option);
+            } catch (error) {
+                console.error(`Failed to load task metadata for ${file}:`, error);
+            }
+        }
+        // Refresh rule list to ensure they have the latest task options
+        loadMonitorRules();
+    }
 
 
 
@@ -119,11 +163,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const id = `monitor-${Date.now()}`;
+        const taskName = document.getElementById('monitor-task').value;
         const rule = {
             id,
             url: currentUrl,
             type,
             value: val,
+            taskName: taskName, // New field
             isActive: true,
             restrictToPath: restrictToPath,
             autoStop: autoStop,
@@ -223,7 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try { 
             const urlObject = new URL(rule.url);
             hostname = urlObject.hostname; 
-            fullPath = urlObject.pathname; // 只保留路径，去除 search (query)
+            fullPath = urlObject.pathname;
             if (fullPath === '/') fullPath = '';
         } catch (e) { 
             hostname = rule.url; 
@@ -239,22 +285,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         item.innerHTML = `
             <div class="monitor-content" style="opacity: ${opacities};">
-                <div class="monitor-main">
-                    <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" title="Current scope: ${scopeLabel}. Click to switch.">
-                        <span class="scope-icon" style="font-size: 10px;">${scopeIcon}</span>
-                        <span class="scope-text">${scopeLabel}</span>
-                    </div>
+                <!-- Row 1: Value & Origin -->
+                <div class="monitor-row monitor-row-top">
                     <div class="monitor-value-container">
                         <span class="monitor-value" data-full-text="${rule.value}">${rule.value}</span>
                         <span class="badge ${badgeClass}">${badgeLabel}</span>
                     </div>
+                    <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
                 </div>
-                <div class="monitor-meta">
-                    <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" title="Trigger behavior: ${isAutoStop ? 'Stop after trigger (Once)' : 'Keep monitoring (Continuous)'}. Click to switch." ${!isAutoStop ? 'style="background: rgba(255, 255, 255, 0.05); color: #ccc;"' : ''}>
-                        <span class="scope-icon" style="font-size: 10px; margin-right: 2px;">${autoStopIcon}</span>
-                        <span class="scope-text">${autoStopLabel}</span>
+                
+                <!-- Row 2: Controls -->
+                <div class="monitor-row monitor-row-bottom">
+                    <div class="monitor-controls-group">
+                        <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" title="Switch Scope: ${scopeLabel}">
+                            <span class="scope-icon">${scopeIcon}</span>
+                            <span class="scope-text">${scopeLabel}</span>
+                        </div>
+                        <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" title="Switch Behavior: ${autoStopLabel}">
+                            <span class="scope-icon">${autoStopIcon}</span>
+                            <span class="scope-text">${autoStopLabel}</span>
+                        </div>
+                        <div class="monitor-task-selector">
+                            <select class="rule-task-select" data-id="${rule.id}" title="Task triggered on element match">
+                                <option value="">No Task</option>
+                                ${discoveredTasks.map(t => `<option value="${t.id}" ${rule.taskName === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+                            </select>
+                        </div>
                     </div>
-                    <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">Origin: ${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
                 </div>
             </div>
             <div class="monitor-actions">
@@ -265,6 +322,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <button class="delete-btn" data-id="${rule.id}">×</button>
             </div>
         `;
+
+        const taskSelect = item.querySelector('.rule-task-select');
+        if (taskSelect) {
+            taskSelect.addEventListener('change', (e) => updateRuleTask(rule.id, e.target.value));
+        }
 
         const scopeBadge = item.querySelector('.monitor-scope:not(.monitor-autostop)');
         if (scopeBadge) {
@@ -364,6 +426,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clearAllMonitors() {
         chrome.storage.local.set({ monitorRules: [] }, loadMonitorRules);
+    }
+
+    function updateRuleTask(id, taskName) {
+        chrome.storage.local.get(['monitorRules'], (result) => {
+            const rules = result.monitorRules || [];
+            const updatedRules = rules.map(rule => {
+                if (rule.id === id) {
+                    return { ...rule, taskName };
+                }
+                return rule;
+            });
+            chrome.storage.local.set({ monitorRules: updatedRules });
+            // No need to reload list here as select state is already correct UI-wise
+        });
     }
 
     function formatRemainingTime(ms) {

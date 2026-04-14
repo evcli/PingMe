@@ -11,7 +11,7 @@ function isUrlMatch(url1, url2, exact) {
       let path = p.pathname;
       if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
       return { hostname: p.hostname, pathname: path };
-    } catch(e) { return { hostname: u, pathname: u }; }
+    } catch (e) { return { hostname: u, pathname: u }; }
   };
 
   const n1 = normalizePath(url1);
@@ -61,22 +61,32 @@ function startMonitoring() {
   checkRules();
 }
 
-function checkRules() {
-  rules.forEach(rule => {
+async function checkRules() {
+  for (const rule of rules) {
     let currentlyMet = false;
+    let targetElement = null;
 
     if (rule.type === 'text') {
-      if (document.body.innerText.includes(rule.value)) {
-        currentlyMet = true;
+      // Find the element containing the text to pass as trigger context
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+      let node;
+      while (node = walker.nextNode()) {
+        if (node.textContent.includes(rule.value)) {
+          currentlyMet = true;
+          targetElement = node.parentElement;
+          break;
+        }
       }
     } else if (rule.type === 'selector') {
-      if (document.querySelector(rule.value)) {
+      targetElement = document.querySelector(rule.value);
+      if (targetElement) {
         currentlyMet = true;
       }
     } else if (rule.type === 'xpath') {
       try {
-        const result = document.evaluate(rule.value, document, null, XPathResult.ANY_TYPE, null);
-        if (result.iterateNext()) {
+        const result = document.evaluate(rule.value, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        targetElement = result.singleNodeValue;
+        if (targetElement) {
           currentlyMet = true;
         }
       } catch (e) {
@@ -86,10 +96,23 @@ function checkRules() {
 
     // Trigger notification only on transition from false -> true
     if (currentlyMet && !ruleStates[rule.id]) {
+      let finalMessage = `Condition reached for: ${rule.value} on ${window.location.hostname}`;
+
+      // Execute Task if bound
+      if (rule.taskName && window.PingMeTasks && window.PingMeTasks[rule.taskName]) {
+        try {
+          const taskResult = await window.PingMeTasks[rule.taskName](targetElement);
+          finalMessage = `[Success] ${taskResult}`;
+        } catch (error) {
+          console.error(`[PingMe] Task ${rule.taskName} failed:`, error);
+          finalMessage = `[Failed] ${rule.taskName}: ${error.message}`;
+        }
+      }
+
       chrome.runtime.sendMessage({
         type: 'MONITOR_TRIGGERED',
-        ruleId: rule.id, // Added ruleId
-        message: `Condition reached for: ${rule.value} on ${window.location.hostname}`
+        ruleId: rule.id,
+        message: finalMessage
       }, (response) => {
         if (chrome.runtime.lastError) {
           console.error('[PingMe] Notification failed:', chrome.runtime.lastError.message);
@@ -99,7 +122,7 @@ function checkRules() {
 
     // Update local state
     ruleStates[rule.id] = currentlyMet;
-  });
+  }
 }
 
 // Initial load
@@ -110,7 +133,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.monitorRules) {
     const currentUrl = window.location.href;
     const allRules = changes.monitorRules.newValue || [];
-    
+
     rules = allRules.filter(rule => {
       // 1. Only active rules
       if (rule.isActive === false) return false;

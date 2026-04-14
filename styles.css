@@ -433,3 +433,73 @@ input:checked+.slider {
 input:checked+.slider:before {
     transform: translateX(12px);
 }
+/* Inline Task Selector */
+.rule-task-select {
+    background: rgba(100, 255, 100, 0.08);
+    border: 1px solid rgba(100, 255, 100, 0.2);
+    border-radius: 4px;
+    color: #9f9;
+    font-size: 10px;
+    padding: 0 4px;
+    height: 18px;
+    cursor: pointer;
+    outline: none;
+    max-width: 100px;
+    text-overflow: ellipsis;
+}
+
+.rule-task-select:hover {
+    background: rgba(100, 255, 100, 0.15);
+}
+
+.rule-task-select option {
+    background: #1e1e1e;
+    color: #eee;
+}
+
+/* New Two-Row Layout Styles */
+.monitor-item {
+    align-items: center; /* Vertical center overall */
+}
+
+.monitor-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.monitor-row-top {
+    margin-bottom: 2px;
+}
+
+.monitor-row-bottom {
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+.monitor-controls-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.monitor-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding-left: 10px;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.monitor-origin {
+    margin-top: 0;
+    text-align: right;
+    max-width: 120px; /* Constrain origin width in the row */
+}
+
+.monitor-value {
+    max-width: 140px;
+}

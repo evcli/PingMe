@@ -44,10 +44,15 @@
                     <input type="text" id="monitor-value" placeholder="Text or selector..."
                         style="flex: 1; min-width: 0;">
                 </div>
+                <div class="row" style="margin-top: 6px;">
+                    <select id="monitor-task" style="flex: 1; font-size: 11px;">
+                        <option value="">No Task (Notify Only)</option>
+                        <!-- Tasks will be loaded dynamically -->
+                    </select>
+                </div>
                 <div class="row" style="margin-top: 6px; justify-content: flex-start; align-items: center; gap: 8px;">
                     <input type="checkbox" id="path-lock" style="width: auto; margin: 0;">
-                    <label for="path-lock" style="font-size: 11px; cursor: pointer; user-select: none;">Path Lock (Exact
-                        URL only)</label>
+                    <label for="path-lock" style="font-size: 11px; cursor: pointer; user-select: none;">Path Lock (Exact URL only)</label>
                     <input type="checkbox" id="auto-stop" style="width: auto; margin: 0;" checked>
                     <label for="auto-stop" style="font-size: 11px; cursor: pointer; user-select: none;" title="Automatically stop monitoring after it triggers">Auto Stop</label>
                 </div>
