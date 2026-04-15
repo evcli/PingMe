@@ -33,7 +33,7 @@ window.PipelineHelpers = {
             await new Promise(r => setTimeout(r, 200));
         }
 
-        if (!popover) throw new Error('Popover timeout');
+        if (!popover) return null;
         return popover;
     }
 };

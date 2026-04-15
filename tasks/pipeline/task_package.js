@@ -2,6 +2,8 @@
 
 PingMe.registerTask('pipeline:package', async (triggerElement) => {
   const popover = await PipelineHelpers.waitForPopover(triggerElement);
+  if (!popover) return { success: false, message: 'Popover timeout' };
+  
   const caption = popover.querySelector('.caption')?.innerText || "";
 
   if (caption.includes('Canary Deployment')) {
@@ -11,13 +13,13 @@ PingMe.registerTask('pipeline:package', async (triggerElement) => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     }
     popover.querySelector('.proceed-button')?.click();
-    return 'Deploy: Proceed';
+    return { success: true, message: 'Deploy: Proceed' };
   }
 
   if (caption.includes('Promote to Nexus')) {
     popover.querySelector('.proceed-button')?.click();
-    return 'Promote to Nexus: Proceed';
+    return { success: true, message: 'Promote to Nexus: Proceed' };
   }
 
-  return 'Package: No matching action found.';
+  return { success: false, message: 'Package: No matching action found.' };
 });

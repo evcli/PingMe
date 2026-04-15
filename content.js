@@ -128,11 +128,25 @@ function checkRules() {
       if (rule.taskName && window.PingMeTasks && window.PingMeTasks[rule.taskName]) {
         window.PingMeTasks[rule.taskName](targetElement)
           .then(taskResult => {
-            sendMessage(`[Success] ${taskResult}`);
+            let isSuccess = true;
+            let msg = '';
+            if (taskResult && typeof taskResult === 'object' && 'success' in taskResult) {
+              isSuccess = taskResult.success;
+              msg = taskResult.message || '';
+            } else {
+              msg = String(taskResult);
+            }
+
+            if (isSuccess) {
+              sendMessage(`[Success] ${msg}`);
+            } else {
+              sendMessage(`[Failed] ${rule.taskName}: ${msg}`);
+            }
           })
           .catch(error => {
-            console.error(`[PingMe] Task ${rule.taskName} failed:`, error);
-            sendMessage(`[Failed] ${rule.taskName}: ${error.message}`);
+            console.warn(`[PingMe] Task ${rule.taskName} failed:`, error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            sendMessage(`[Failed] ${rule.taskName}: ${errorMsg}`);
           });
       } else {
         sendMessage(`Condition reached for: ${rule.value} on ${window.location.hostname}`);
