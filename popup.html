@@ -11,61 +11,88 @@
 <body>
     <div class="container">
         <header>
-            <h1>PingMe</h1>
+            <div class="brand">
+                <h1>PingMe</h1>
+                <div id="live-indicator" class="live-indicator" title="Next Alarm Status">
+                    <span class="status-dot"></span>
+                    <span id="next-alarm-text">Ready</span>
+                </div>
+            </div>
         </header>
 
-        <!-- Quick Timer Reminder -->
-        <div class="section" id="reminder-section">
-            <h2>Quick Reminder</h2>
-            <div class="input-group">
-                <div class="row">
-                    <input type="number" id="timer-minutes" placeholder="Minutes (e.g., 20)" min="1" autofocus
-                        style="flex: 1;">
-                    <button id="add-reminder-btn">Set</button>
+        <main class="feed">
+            <!-- Part 1: Quick Reminder Input (Sticky Focus) -->
+            <section class="card add-reminder-card" id="reminder-section">
+                <div class="input-row">
+                    <input type="number" id="timer-minutes" placeholder="Mins" min="1" autofocus>
+                    <button id="add-reminder-btn" class="btn-primary">Set</button>
+                    <div class="quick-presets">
+                        <button class="preset-btn" data-min="5">5m</button>
+                        <button class="preset-btn" data-min="10">10m</button>
+                        <button class="preset-btn" data-min="20">20m</button>
+                        <button class="preset-btn" data-min="30">30m</button>
+                    </div>
                 </div>
-                <input type="text" id="timer-note" placeholder="Add a note (optional)">
-            </div>
-            <div class="list" id="reminder-list">
-                <!-- Reminders will be injected here -->
-                <div class="empty-state">No active reminders</div>
-            </div>
-        </div>
+                <input type="text" id="timer-note" placeholder="Note (optional)..." class="note-input">
+            </section>
 
-        <!-- Webpage Content Monitoring -->
-        <div class="section" id="monitor-section">
-            <h2>Page Monitoring</h2>
-            <div class="input-group">
-                <div class="row">
-                    <select id="monitor-type" style="flex: 0.4;">
-                        <option value="text">Text</option>
-                        <option value="selector">CSS</option>
-                        <option value="xpath">XPath</option>
-                    </select>
-                    <input type="text" id="monitor-value" placeholder="Text or selector..."
-                        style="flex: 1; min-width: 0;">
+            <!-- Part 2: Site Monitoring Rule Input (Collapsible) -->
+            <section class="card add-monitor-card collapsed" id="monitor-input-section">
+                <div class="card-header-toggle" id="toggle-monitor-form">
+                    <span class="header-icon">🌐</span>
+                    <span class="header-title">Add Page Monitor</span>
+                    <span class="chevron">▼</span>
                 </div>
-                <div class="row" style="margin-top: 6px;">
-                    <select id="monitor-task" style="flex: 1; font-size: 11px;">
-                        <option value="">No Task (Notify Only)</option>
-                        <!-- Tasks will be loaded dynamically -->
-                    </select>
+                <div class="collapsible-content">
+                    <div class="input-grid">
+                        <div class="row">
+                            <select id="monitor-type" class="compact-select">
+                                <option value="text">TEXT</option>
+                                <option value="selector">CSS</option>
+                                <option value="xpath">XPATH</option>
+                            </select>
+                            <input type="text" id="monitor-value" placeholder="Selector or text..." style="flex: 1;">
+                        </div>
+                        <div class="row secondary-controls">
+                            <select id="monitor-task" class="task-select">
+                                <option value="">No Task</option>
+                            </select>
+                            <div class="toggle-group">
+                                <label class="toggle-label" title="Exact Path Only">
+                                    <input type="checkbox" id="path-lock"> <span>📍 Path</span>
+                                </label>
+                                <label class="toggle-label" title="Stop after trigger">
+                                    <input type="checkbox" id="auto-stop" checked> <span>🛑 Once</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="row actions">
+                            <button id="add-monitor-btn" class="btn-glow">Monitor Page</button>
+                            <button id="clear-all-monitors-btn" class="btn-icon" title="Clear All Rules Across Sites">🗑️</button>
+                        </div>
+                    </div>
                 </div>
-                <div class="row" style="margin-top: 6px; justify-content: flex-start; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="path-lock" style="width: auto; margin: 0;">
-                    <label for="path-lock" style="font-size: 11px; cursor: pointer; user-select: none;">Path Lock (Exact URL only)</label>
-                    <input type="checkbox" id="auto-stop" style="width: auto; margin: 0;" checked>
-                    <label for="auto-stop" style="font-size: 11px; cursor: pointer; user-select: none;" title="Automatically stop monitoring after it triggers">Auto Stop</label>
+            </section>
+
+            <!-- Part 3: Active Dashboard (The Feed) -->
+            <div class="dashboard-lists">
+                <!-- Site Monitoring Section (Will be moved to top via JS/CSS if active) -->
+                <div id="monitor-list-container" class="list-container">
+                    <h2 class="list-title">Monitoring</h2>
+                    <div class="list" id="monitor-list">
+                        <div class="empty-state">No rules for this page</div>
+                    </div>
                 </div>
-                <div class="row">
-                    <button id="add-monitor-btn" style="flex: 1;">Monitor Page</button>
-                    <button id="clear-all-monitors-btn" class="btn-secondary">Clear All</button>
+
+                <!-- Reminder Section -->
+                <div id="reminder-list-container" class="list-container">
+                    <h2 class="list-title">Active Timers</h2>
+                    <div class="list" id="reminder-list">
+                        <div class="empty-state">No active reminders</div>
+                    </div>
                 </div>
             </div>
-            <div class="list" id="monitor-list">
-                <!-- Rules for current URL will be injected here -->
-                <div class="empty-state">No rules for this page</div>
-            </div>
-        </div>
+        </main>
     </div>
     <div id="global-tooltip" class="tooltip-overlay"></div>
     <script src="popup.js"></script>

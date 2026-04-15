@@ -47,11 +47,19 @@ function loadRules() {
 }
 
 let observer = null;
+let mutationTimeout = null;
 
 function startMonitoring() {
   if (observer) return; // Prevent multiple observers
+  
+  // Use a throttled observer to prevent high CPU usage on pages with frequent DOM changes
   observer = new MutationObserver((mutations) => {
-    checkRules();
+    if (!mutationTimeout) {
+      mutationTimeout = setTimeout(() => {
+        checkRules();
+        mutationTimeout = null;
+      }, 1000); // 1s throttle
+    }
   });
 
   observer.observe(document.body, {
@@ -70,14 +78,17 @@ function checkRules() {
     let targetElement = null;
 
     if (rule.type === 'text') {
-      // Find the element containing the text to pass as trigger context
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-      let node;
-      while (node = walker.nextNode()) {
-        if (node.textContent.includes(rule.value)) {
-          currentlyMet = true;
-          targetElement = node.parentElement;
-          break;
+      // Fast pre-check: skip expensive TreeWalker if text is definitely nowhere in the body
+      if (document.body.textContent.includes(rule.value)) {
+        // Find the element containing the text to pass as trigger context
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent.includes(rule.value)) {
+            currentlyMet = true;
+            targetElement = node.parentElement;
+            break;
+          }
         }
       }
     } else if (rule.type === 'selector') {

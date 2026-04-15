@@ -14,14 +14,133 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentUrl = '';
     let discoveredTasks = []; // Store tasks for reuse in list items
+    let cachedReminders = []; // Local cache for timer countdown without hitting storage API
+
+    // --- Smart Contextual UI Logic ---
+    const updateLiveStatus = (reminders) => {
+        const nextAlarmText = document.getElementById('next-alarm-text');
+        const statusDot = document.querySelector('.status-dot');
+        
+        if (reminders.length > 0) {
+            const sorted = [...reminders].sort((a, b) => a.triggerTime - b.triggerTime);
+            const next = sorted[0];
+            const remainingMs = next.triggerTime - Date.now();
+            
+            if (remainingMs > 0) {
+                nextAlarmText.textContent = formatRemainingTime(remainingMs);
+                statusDot.style.background = '#00f2fe';
+            } else {
+                nextAlarmText.textContent = 'Triggering...';
+                statusDot.style.background = '#ff3b30';
+            }
+        } else {
+            nextAlarmText.textContent = 'Ready';
+            statusDot.style.background = 'rgba(255,255,255,0.2)';
+        }
+    };
+
+    // Quick Presets
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mins = btn.dataset.min;
+            timerInput.value = mins;
+            addReminder();
+        });
+    });
+
+    // Toggle Monitor Form
+    const toggleMonitorBtn = document.getElementById('toggle-monitor-form');
+    const monitorInputCard = document.getElementById('monitor-input-section');
+    if (toggleMonitorBtn && monitorInputCard) {
+        toggleMonitorBtn.addEventListener('click', () => {
+            monitorInputCard.classList.toggle('expanded');
+        });
+    }
+
+    const smartReorderFeed = (reminders, rules) => {
+        const monitorContainer = document.getElementById('monitor-list-container');
+        const reminderContainer = document.getElementById('reminder-list-container');
+        const dashboard = document.querySelector('.dashboard-lists');
+
+        if (!monitorContainer || !reminderContainer || !dashboard) return;
+
+        let currentHostname = '';
+        try { currentHostname = new URL(currentUrl).hostname; } catch (e) {}
+        
+        const hasPageRules = rules.some(r => {
+            try { return new URL(r.url).hostname === currentHostname; }
+            catch (e) { return currentUrl.includes(r.url); }
+        });
+
+        // Smart Reordering: Only prepend if the order actually needs to change to prevent flicker
+        if (hasPageRules) {
+            if (dashboard.firstElementChild !== monitorContainer) {
+                dashboard.prepend(monitorContainer);
+            }
+        } else if (reminders.length > 0) {
+            if (dashboard.firstElementChild !== reminderContainer) {
+                dashboard.prepend(reminderContainer);
+            }
+        }
+        
+        // Visibility - Use opacity or classes if frequent, but display toggle is okay if content doesn't change
+        const monitorTargetDisplay = hasPageRules ? 'block' : (rules.length > 0 ? 'block' : 'none');
+        if (monitorContainer.style.display !== monitorTargetDisplay) {
+            monitorContainer.style.display = monitorTargetDisplay;
+        }
+
+        const reminderTargetDisplay = reminders.length > 0 ? 'block' : 'none';
+        if (reminderContainer.style.display !== reminderTargetDisplay) {
+            reminderContainer.style.display = reminderTargetDisplay;
+        }
+        
+        updateLiveStatus(reminders);
+    };
+
+    const updateTimeDisplays = () => {
+        const reminders = cachedReminders;
+        
+        // 1. Update the items in the list
+        document.querySelectorAll('#reminder-list .item').forEach(item => {
+            const delBtn = item.querySelector('.delete-btn');
+            const id = delBtn ? delBtn.dataset.id : null;
+            const reminder = reminders.find(r => r.id === id);
+            if (reminder) {
+                const timeEl = item.querySelector('.time');
+                const remainingMs = reminder.triggerTime - Date.now();
+                if (timeEl) {
+                    timeEl.textContent = remainingMs > 0 ? formatRemainingTime(remainingMs) : 'Triggering...';
+                }
+            }
+        });
+
+        // 2. Update the header status
+        updateLiveStatus(reminders);
+    };
 
     // Initialize: Get current URL and load data
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-            currentUrl = tabs[0].url;
-            loadReminders();
-            loadMonitorRules();
-            loadDynamicTasks(); // New dynamic discovery
+    chrome.tabs.query({ active: true, currentWindow: true }, (chromeTabs) => {
+        if (chromeTabs[0]) {
+            currentUrl = chromeTabs[0].url;
+            
+            chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
+                const reminders = result.reminders || [];
+                cachedReminders = reminders; // Initialize cache
+                const rules = result.monitorRules || [];
+                
+                displayReminders(reminders);
+                displayMonitorRules(rules);
+                smartReorderFeed(reminders, rules);
+            });
+
+            loadDynamicTasks();
+        }
+    });
+
+    // Listen for storage changes to keep local cache updated automatically
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.reminders) {
+            cachedReminders = changes.reminders.newValue || [];
         }
     });
 
@@ -105,9 +224,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function loadReminders() {
-        chrome.storage.local.get(['reminders'], (result) => {
+        chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
             const reminders = result.reminders || [];
+            const rules = result.monitorRules || [];
             displayReminders(reminders);
+            smartReorderFeed(reminders, rules);
         });
     }
 
@@ -182,6 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chrome.storage.local.set({ monitorRules: rules }, () => {
                 monitorValue.value = '';
                 document.getElementById('path-lock').checked = false;
+                if (monitorInputCard) monitorInputCard.classList.remove('expanded');
                 loadMonitorRules();
             });
         });
@@ -200,9 +322,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function loadMonitorRules() {
-        chrome.storage.local.get(['monitorRules'], (result) => {
-            const allRules = result.monitorRules || [];
-            displayMonitorRules(allRules);
+        chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
+            const reminders = result.reminders || [];
+            const rules = result.monitorRules || [];
+            displayMonitorRules(rules);
+            smartReorderFeed(reminders, rules);
         });
     }
 
@@ -215,36 +339,66 @@ document.addEventListener('DOMContentLoaded', () => {
         let currentHostname = '';
         try { currentHostname = new URL(currentUrl).hostname; } catch (e) { }
 
-        const pageRules = allRules.filter(r => {
+        // 3-Tier Categorization
+        const activeThisSite = allRules.filter(r => {
+            if (!r.isActive) return false;
             try { return new URL(r.url).hostname === currentHostname; }
             catch (e) { return currentUrl.includes(r.url); }
         });
-        const otherRules = allRules.filter(r => {
+
+        const activeOtherSites = allRules.filter(r => {
+            if (!r.isActive) return false;
             try { return new URL(r.url).hostname !== currentHostname; }
             catch (e) { return !currentUrl.includes(r.url); }
         });
 
+        const inactiveRules = allRules.filter(r => !r.isActive).sort((a, b) => {
+            let aThis = false;
+            let bThis = false;
+            try { aThis = new URL(a.url).hostname === currentHostname; } catch(e) { aThis = currentUrl.includes(a.url); }
+            try { bThis = new URL(b.url).hostname === currentHostname; } catch(e) { bThis = currentUrl.includes(b.url); }
+            
+            if (aThis && !bThis) return -1;
+            if (!aThis && bThis) return 1;
+            return 0;
+        });
+
         monitorList.innerHTML = '';
 
-        if (pageRules.length > 0) {
+        // Tier 1: Active This Site
+        if (activeThisSite.length > 0) {
             const header = document.createElement('div');
-            header.className = 'list-header';
-            header.textContent = 'This Site';
+            header.className = 'list-header section-header-active';
+            header.innerHTML = '<span>📍 This Site</span>';
             monitorList.appendChild(header);
 
-            pageRules.forEach(rule => {
+            activeThisSite.forEach(rule => {
                 monitorList.appendChild(createRuleItem(rule));
             });
         }
 
-        if (otherRules.length > 0) {
+        // Tier 2: Active Other Sites
+        if (activeOtherSites.length > 0) {
             const header = document.createElement('div');
-            header.className = 'list-header';
+            header.className = 'list-header section-header-other';
             header.style.marginTop = '8px';
-            header.textContent = 'Other Sites';
+            header.innerHTML = '<span>🌐 Other Sites</span>';
             monitorList.appendChild(header);
 
-            otherRules.forEach(rule => {
+            activeOtherSites.forEach(rule => {
+                monitorList.appendChild(createRuleItem(rule));
+            });
+        }
+
+        // Tier 3: Inactive / History
+        if (inactiveRules.length > 0) {
+            const header = document.createElement('div');
+            header.className = 'list-header section-header-inactive';
+            header.style.marginTop = '12px';
+            header.innerHTML = '<span>💤 Inactive / History</span>';
+            monitorList.appendChild(header);
+
+            inactiveRules.forEach(rule => {
                 monitorList.appendChild(createRuleItem(rule));
             });
         }
@@ -528,6 +682,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTooltip();
 
     setInterval(() => {
-        loadReminders();
+        updateTimeDisplays();
     }, 1000);
 });
