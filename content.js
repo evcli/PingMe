@@ -46,8 +46,11 @@ function loadRules() {
   });
 }
 
+let observer = null;
+
 function startMonitoring() {
-  const observer = new MutationObserver((mutations) => {
+  if (observer) return; // Prevent multiple observers
+  observer = new MutationObserver((mutations) => {
     checkRules();
   });
 
@@ -61,7 +64,7 @@ function startMonitoring() {
   checkRules();
 }
 
-async function checkRules() {
+function checkRules() {
   for (const rule of rules) {
     let currentlyMet = false;
     let targetElement = null;
@@ -96,32 +99,37 @@ async function checkRules() {
 
     // Trigger notification only on transition from false -> true
     if (currentlyMet && !ruleStates[rule.id]) {
-      let finalMessage = `Condition reached for: ${rule.value} on ${window.location.hostname}`;
+      ruleStates[rule.id] = true; // Instantly lock state to prevent race conditions during async tasks
+      
+      const sendMessage = (msg) => {
+        chrome.runtime.sendMessage({
+          type: 'MONITOR_TRIGGERED',
+          ruleId: rule.id,
+          message: msg
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('[PingMe] Notification failed:', chrome.runtime.lastError.message);
+          }
+        });
+      };
 
       // Execute Task if bound
       if (rule.taskName && window.PingMeTasks && window.PingMeTasks[rule.taskName]) {
-        try {
-          const taskResult = await window.PingMeTasks[rule.taskName](targetElement);
-          finalMessage = `[Success] ${taskResult}`;
-        } catch (error) {
-          console.error(`[PingMe] Task ${rule.taskName} failed:`, error);
-          finalMessage = `[Failed] ${rule.taskName}: ${error.message}`;
-        }
+        window.PingMeTasks[rule.taskName](targetElement)
+          .then(taskResult => {
+            sendMessage(`[Success] ${taskResult}`);
+          })
+          .catch(error => {
+            console.error(`[PingMe] Task ${rule.taskName} failed:`, error);
+            sendMessage(`[Failed] ${rule.taskName}: ${error.message}`);
+          });
+      } else {
+        sendMessage(`Condition reached for: ${rule.value} on ${window.location.hostname}`);
       }
-
-      chrome.runtime.sendMessage({
-        type: 'MONITOR_TRIGGERED',
-        ruleId: rule.id,
-        message: finalMessage
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('[PingMe] Notification failed:', chrome.runtime.lastError.message);
-        }
-      });
+    } else if (!currentlyMet) {
+      // Update local state directly to reset
+      ruleStates[rule.id] = false;
     }
-
-    // Update local state
-    ruleStates[rule.id] = currentlyMet;
   }
 }
 
@@ -142,6 +150,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
       return isUrlMatch(currentUrl, rule.url, rule.restrictToPath);
     });
 
+    if (rules.length > 0) {
+      startMonitoring();
+    }
     checkRules();
   }
 });

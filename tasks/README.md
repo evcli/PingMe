@@ -1,53 +1,56 @@
-# PingMe Automation Task
+# PingMe Automation Tasks
 
-This folder contains automation scripts for specific web pages.
+This folder contains automation scripts ("Tasks") for specific web pages.
 
 ## 1. Task Standard
 
-Every task script must follow these simple rules:
+Every task script must follow these requirements to be discovered by the UI:
 
 ### File Naming
-- Put scripts in the `tasks/` folder.
-- Filenames must start with `task_` (e.g., `task_confirm_deploy.js`).
+- **Location**: Put scripts in a subfolder within `tasks/` (e.g., `tasks/pipeline/`).
+- **Prefix**: Filenames **must** start with `task_` (e.g., `task_confirm_deploy.js`).
 
 ### Code Structure
-A task script only needs to call `PingMe.registerTask`:
+Call `PingMe.registerTask` with the ID format `folder:filename_without_prefix`.
 
 ```javascript
-PingMe.registerTask('folder:task_name', async (targetElement) => {
-    // Logic goes here
-    // targetElement is the element found by PingMe
+// Example: tasks/pipeline/task_deploy.js -> ID: 'pipeline:deploy'
+
+PingMe.registerTask('pipeline:deploy', async (targetElement) => {
+    // 1. Your automation logic here
+    // targetElement is the DOM node that triggered the rule
     
-    // You can use helpers (e.g., PipelineHelpers)
-    const popover = await PipelineHelpers.waitForPopover(targetElement);
-    
-    // Do something...
-    
-    // Return result (this will show in the notification)
-    return "Task description or result message";
+    // 2. Return a string result (shows in the notification)
+    return "Deployment confirmed!";
 });
 ```
 
+---
+
 ## 2. How to Add a New Task
 
-1. Create `tasks/task_xxx.js`.
-2. Write your logic using the code structure above.
-3. **Important**: Add your file path to `manifest.json` under `content_scripts`.
-4. **Refresh** the extension in Chrome.
-5. Select the task in the PingMe popup.
+1.  **Create the script**: Create `tasks/your_folder/task_your_name.js`.
+2.  **Logic**: Implement using the structure above.
+3.  **Register**: Open `manifest.json` and add your file path to `content_scripts`.
+4.  **Reload**: Refresh the extension in `chrome://extensions`.
+5.  **Select**: The task will now appear in the "Task" dropdown in the PingMe popup.
+
+---
 
 ## 3. How to Test a Task
 
-You can test tasks manually in the Chrome Console:
+You can manually trigger any registered task in the browser console for debugging:
 
-1. **Switch Context**: Open Console, find the **`top`** dropdown, and select **`PingMe`**.
-2. **Pick Element**: Select an element in the "Elements" tab (it becomes `$0`).
-3. **Run Task**: Type this in the Console:
-   ```javascript
-   await PingMe.tasks.id_of_your_task($0);
-   ```
+1.  **Switch Context**: Open Chrome DevTools Console, find the **`top`** dropdown (above the console input), and select **`PingMe`**.
+2.  **Pick Element**: Select an element in the "Elements" tab (it becomes `$0`).
+3.  **Run**: Execute the task using its ID:
+    ```javascript
+    await PingMe.tasks['pipeline:deploy']($0);
+    ```
 
-## 4. Folder Structure
-- `core.js`: The task registry (Don't edit).
-- `pipeline/utils.js`: Helpers for Pipeline pages.
-- `pipeline/task_*.js`: Tasks for Pipeline pages (Shown as `pipeline:name` in UI).
+---
+
+## 4. Folder Structure Reference
+- `core.js`: Task registry and bridge (Don't edit).
+- `pipeline/utils.js`: Shared helpers (e.g., hover simulations).
+- `pipeline/task_*.js`: Specific tasks for pipeline pages.

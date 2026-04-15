@@ -2,11 +2,28 @@
 
 window.PipelineHelpers = {
     async waitForPopover(triggerElement) {
-        const stageWrapper = triggerElement.closest('.stage-wrapper');
-        if (!stageWrapper) throw new Error('Stage wrapper not found');
 
         // Trigger hover
-        stageWrapper.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        const rect = triggerElement.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        
+        ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'mousemove'].forEach(eventType => {
+            const isPointer = eventType.startsWith('pointer');
+            const EventClass = isPointer ? PointerEvent : MouseEvent;
+            
+            const eventInit = {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX,
+                clientY,
+                relatedTarget: document.body,
+                ...(isPointer ? { pointerId: 1, pointerType: 'mouse' } : {})
+            };
+            
+            triggerElement.dispatchEvent(new EventClass(eventType, eventInit));
+        });
 
         // Wait for popover
         let popover = null;
