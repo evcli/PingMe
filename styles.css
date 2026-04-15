@@ -342,7 +342,7 @@ button:active {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    cursor: help;
+    cursor: pointer;
     max-width: 160px;
     line-height: 1.4;
     position: relative;

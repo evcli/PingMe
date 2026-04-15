@@ -288,8 +288,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <!-- Row 1: Value & Origin -->
                 <div class="monitor-row monitor-row-top">
                     <div class="monitor-value-container">
-                        <span class="monitor-value" data-full-text="${rule.value}">${rule.value}</span>
                         <span class="badge ${badgeClass}">${badgeLabel}</span>
+                        <span class="monitor-value" data-full-text="${rule.value}">${rule.value}</span>
                     </div>
                     <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
                 </div>
@@ -343,6 +343,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const delBtn = item.querySelector('.delete-btn');
         delBtn.addEventListener('click', () => removeMonitorRule(rule.id));
+
+        // Click to copy logic
+        const valueEl = item.querySelector('.monitor-value');
+        if (valueEl) {
+            valueEl.addEventListener('click', (e) => {
+                const text = valueEl.getAttribute('data-full-text') || valueEl.textContent;
+                navigator.clipboard.writeText(text).then(() => {
+                    // Feedback in global tooltip
+                    const originalText = globalTooltip.textContent;
+                    globalTooltip.textContent = 'Copied! ✅';
+                    globalTooltip.style.color = '#00ff00';
+                    setTimeout(() => {
+                        globalTooltip.textContent = originalText;
+                        globalTooltip.style.color = '';
+                    }, 800);
+                });
+            });
+        }
 
         return item;
     }
