@@ -20,8 +20,10 @@ PingMe.registerTask('pipeline:deploy', async (targetElement) => {
     // 1. Your automation logic here
     // targetElement is the DOM node that triggered the rule
     
-    // 2. Return a string result (shows in the notification)
-    return "Deployment confirmed!";
+    // 2. Return a result object with a success flag and message.
+    // Error objects (success: false) will trigger a failure notification
+    // without polluting Chrome's background error logs.
+    return { success: true, message: "Deployment confirmed!" };
 });
 ```
 
