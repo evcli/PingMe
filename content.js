@@ -11,7 +11,7 @@ function isUrlMatch(url1, url2, exact) {
       let path = p.pathname;
       if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
       return { hostname: p.hostname, pathname: path };
-    } catch(e) { return { hostname: u, pathname: u }; }
+    } catch (e) { return { hostname: u, pathname: u }; }
   };
 
   const n1 = normalizePath(url1);
@@ -46,9 +46,20 @@ function loadRules() {
   });
 }
 
+let observer = null;
+let mutationTimeout = null;
+
 function startMonitoring() {
-  const observer = new MutationObserver((mutations) => {
-    checkRules();
+  if (observer) return; // Prevent multiple observers
+
+  // Use a throttled observer to prevent high CPU usage on pages with frequent DOM changes
+  observer = new MutationObserver((mutations) => {
+    if (!mutationTimeout) {
+      mutationTimeout = setTimeout(() => {
+        checkRules();
+        mutationTimeout = null;
+      }, 1000); // 1s throttle
+    }
   });
 
   observer.observe(document.body, {
@@ -62,21 +73,34 @@ function startMonitoring() {
 }
 
 function checkRules() {
-  rules.forEach(rule => {
+  for (const rule of rules) {
     let currentlyMet = false;
+    let targetElement = null;
 
     if (rule.type === 'text') {
-      if (document.body.innerText.includes(rule.value)) {
-        currentlyMet = true;
+      // Fast pre-check: skip expensive TreeWalker if text is definitely nowhere in the body
+      if (document.body.textContent.includes(rule.value)) {
+        // Find the element containing the text to pass as trigger context
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent.includes(rule.value)) {
+            currentlyMet = true;
+            targetElement = node.parentElement;
+            break;
+          }
+        }
       }
     } else if (rule.type === 'selector') {
-      if (document.querySelector(rule.value)) {
+      targetElement = document.querySelector(rule.value);
+      if (targetElement) {
         currentlyMet = true;
       }
     } else if (rule.type === 'xpath') {
       try {
-        const result = document.evaluate(rule.value, document, null, XPathResult.ANY_TYPE, null);
-        if (result.iterateNext()) {
+        const result = document.evaluate(rule.value, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        targetElement = result.singleNodeValue;
+        if (targetElement) {
           currentlyMet = true;
         }
       } catch (e) {
@@ -86,20 +110,55 @@ function checkRules() {
 
     // Trigger notification only on transition from false -> true
     if (currentlyMet && !ruleStates[rule.id]) {
-      chrome.runtime.sendMessage({
-        type: 'MONITOR_TRIGGERED',
-        ruleId: rule.id, // Added ruleId
-        message: `Condition reached for: ${rule.value} on ${window.location.hostname}`
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('[PingMe] Notification failed:', chrome.runtime.lastError.message);
-        }
-      });
-    }
+      ruleStates[rule.id] = true; // Instantly lock state to prevent race conditions during async tasks
 
-    // Update local state
-    ruleStates[rule.id] = currentlyMet;
-  });
+      const sendMessage = (msg, extraProps = {}) => {
+        chrome.runtime.sendMessage({
+          type: 'MONITOR_TRIGGERED',
+          ruleId: rule.id,
+          message: msg,
+          ...extraProps
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('[PingMe] Notification failed:', chrome.runtime.lastError.message);
+          }
+        });
+      };
+
+      // Execute Task if bound
+      if (rule.taskName && window.PingMeTasks && window.PingMeTasks[rule.taskName]) {
+        window.PingMeTasks[rule.taskName](targetElement)
+          .then(taskResult => {
+            let isSuccess = true;
+            let msg = '';
+            let isFinished = false;
+            if (taskResult && typeof taskResult === 'object' && 'success' in taskResult) {
+              isSuccess = taskResult.success;
+              msg = taskResult.message || '';
+              if (taskResult.finished === true) isFinished = true;
+            } else {
+              msg = String(taskResult);
+            }
+
+            if (isSuccess) {
+              sendMessage(`[Success] ${msg}`, { finished: isFinished });
+            } else {
+              sendMessage(`[Failed] ${rule.taskName}: ${msg}`, { finished: isFinished });
+            }
+          })
+          .catch(error => {
+            console.warn(`[PingMe] Task ${rule.taskName} failed:`, error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            sendMessage(`[Failed] ${rule.taskName}: ${errorMsg}`, { finished: true }); // Assume fatal error finished the pipeline
+          });
+      } else {
+        sendMessage(`Condition reached for: ${rule.value} on ${window.location.hostname}`);
+      }
+    } else if (!currentlyMet) {
+      // Update local state directly to reset
+      ruleStates[rule.id] = false;
+    }
+  }
 }
 
 // Initial load
@@ -110,7 +169,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.monitorRules) {
     const currentUrl = window.location.href;
     const allRules = changes.monitorRules.newValue || [];
-    
+
     rules = allRules.filter(rule => {
       // 1. Only active rules
       if (rule.isActive === false) return false;
@@ -119,6 +178,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
       return isUrlMatch(currentUrl, rule.url, rule.restrictToPath);
     });
 
+    if (rules.length > 0) {
+      startMonitoring();
+    }
     checkRules();
   }
 });

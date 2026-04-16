@@ -32,6 +32,10 @@
         "<all_urls>"
       ],
       "js": [
+        "tasks/core.js",
+        "tasks/pipeline/utils.js",
+        "tasks/pipeline/task_deploy.js",
+        "tasks/pipeline/task_package.js",
         "content.js"
       ]
     }

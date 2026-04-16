@@ -13,15 +13,181 @@ document.addEventListener('DOMContentLoaded', () => {
     const monitorList = document.getElementById('monitor-list');
 
     let currentUrl = '';
+    let discoveredTasks = []; // Store tasks for reuse in list items
+    let cachedReminders = []; // Local cache for timer countdown without hitting storage API
+
+    // --- Smart Contextual UI Logic ---
+    const updateLiveStatus = (reminders) => {
+        const nextAlarmText = document.getElementById('next-alarm-text');
+        const statusDot = document.querySelector('.status-dot');
+        
+        if (reminders.length > 0) {
+            const sorted = [...reminders].sort((a, b) => a.triggerTime - b.triggerTime);
+            const next = sorted[0];
+            const remainingMs = next.triggerTime - Date.now();
+            
+            if (remainingMs > 0) {
+                nextAlarmText.textContent = formatRemainingTime(remainingMs);
+                statusDot.style.background = '#00f2fe';
+            } else {
+                nextAlarmText.textContent = 'Triggering...';
+                statusDot.style.background = '#ff3b30';
+            }
+        } else {
+            nextAlarmText.textContent = 'Ready';
+            statusDot.style.background = 'rgba(255,255,255,0.2)';
+        }
+    };
+
+    // Quick Presets
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mins = btn.dataset.min;
+            timerInput.value = mins;
+            addReminder();
+        });
+    });
+
+    // Toggle Monitor Form
+    const toggleMonitorBtn = document.getElementById('toggle-monitor-form');
+    const monitorInputCard = document.getElementById('monitor-input-section');
+    if (toggleMonitorBtn && monitorInputCard) {
+        toggleMonitorBtn.addEventListener('click', () => {
+            monitorInputCard.classList.toggle('expanded');
+        });
+    }
+
+    const smartReorderFeed = (reminders, rules) => {
+        const monitorContainer = document.getElementById('monitor-list-container');
+        const reminderContainer = document.getElementById('reminder-list-container');
+        const dashboard = document.querySelector('.dashboard-lists');
+
+        if (!monitorContainer || !reminderContainer || !dashboard) return;
+
+        let currentHostname = '';
+        try { currentHostname = new URL(currentUrl).hostname; } catch (e) {}
+        
+        const hasPageRules = rules.some(r => {
+            try { return new URL(r.url).hostname === currentHostname; }
+            catch (e) { return currentUrl.includes(r.url); }
+        });
+
+        // Smart Reordering: Only prepend if the order actually needs to change to prevent flicker
+        if (hasPageRules) {
+            if (dashboard.firstElementChild !== monitorContainer) {
+                dashboard.prepend(monitorContainer);
+            }
+        } else if (reminders.length > 0) {
+            if (dashboard.firstElementChild !== reminderContainer) {
+                dashboard.prepend(reminderContainer);
+            }
+        }
+        
+        // Visibility - Use opacity or classes if frequent, but display toggle is okay if content doesn't change
+        const monitorTargetDisplay = hasPageRules ? 'block' : (rules.length > 0 ? 'block' : 'none');
+        if (monitorContainer.style.display !== monitorTargetDisplay) {
+            monitorContainer.style.display = monitorTargetDisplay;
+        }
+
+        const reminderTargetDisplay = reminders.length > 0 ? 'block' : 'none';
+        if (reminderContainer.style.display !== reminderTargetDisplay) {
+            reminderContainer.style.display = reminderTargetDisplay;
+        }
+        
+        updateLiveStatus(reminders);
+    };
+
+    const updateTimeDisplays = () => {
+        const reminders = cachedReminders;
+        
+        // 1. Update the items in the list
+        document.querySelectorAll('#reminder-list .item').forEach(item => {
+            const delBtn = item.querySelector('.delete-btn');
+            const id = delBtn ? delBtn.dataset.id : null;
+            const reminder = reminders.find(r => r.id === id);
+            if (reminder) {
+                const timeEl = item.querySelector('.time');
+                const remainingMs = reminder.triggerTime - Date.now();
+                if (timeEl) {
+                    timeEl.textContent = remainingMs > 0 ? formatRemainingTime(remainingMs) : 'Triggering...';
+                }
+            }
+        });
+
+        // 2. Update the header status
+        updateLiveStatus(reminders);
+    };
 
     // Initialize: Get current URL and load data
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-            currentUrl = tabs[0].url;
-            loadReminders();
-            loadMonitorRules();
+    chrome.tabs.query({ active: true, currentWindow: true }, (chromeTabs) => {
+        if (chromeTabs[0]) {
+            currentUrl = chromeTabs[0].url;
+            
+            chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
+                const reminders = result.reminders || [];
+                cachedReminders = reminders; // Initialize cache
+                const rules = result.monitorRules || [];
+                
+                displayReminders(reminders);
+                displayMonitorRules(rules);
+                smartReorderFeed(reminders, rules);
+            });
+
+            loadDynamicTasks();
         }
     });
+
+    // Listen for storage changes to keep local cache updated automatically
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.reminders) {
+            cachedReminders = changes.reminders.newValue || [];
+        }
+    });
+
+    /**
+     * Dynamically discovers tasks from manifest.json and task file metadata
+     */
+    async function loadDynamicTasks() {
+        const taskSelect = document.getElementById('monitor-task');
+        if (!taskSelect) return;
+
+        const manifest = chrome.runtime.getManifest();
+        // Look for scripts in tasks/ folder that follow the task_ prefix convention
+        const scripts = manifest.content_scripts[0].js || [];
+        const taskFiles = scripts.filter(s => s.includes('/task_'));
+
+        for (const file of taskFiles) {
+            try {
+                const response = await fetch(chrome.runtime.getURL(file));
+                const content = await response.text();
+                
+                // Get path relative to 'tasks/' and clean up filename
+                const relativePath = file.replace('tasks/', '');
+                const parts = relativePath.split('/');
+                const fileName = parts.pop().replace('.js', '').replace(/^task_/, '');
+                const folderPath = parts.join('/');
+                
+                // Final ID and display name: folder:name (e.g., pipeline:deploy)
+                const taskId = folderPath ? `${folderPath}:${fileName}` : fileName;
+                const taskDisplayName = taskId;
+                
+                const timeoutMatch = content.match(/timeoutMinutes:\s*(\d+)/);
+                const timeoutMinutes = timeoutMatch ? parseInt(timeoutMatch[1], 10) : 30;
+                
+                // Save to global list
+                discoveredTasks.push({ id: taskId, name: taskDisplayName, timeoutMinutes });
+
+                const option = document.createElement('option');
+                option.value = taskId;
+                option.textContent = taskDisplayName;
+                taskSelect.appendChild(option);
+            } catch (error) {
+                console.error(`Failed to load task metadata for ${file}:`, error);
+            }
+        }
+        // Refresh rule list to ensure they have the latest task options
+        loadMonitorRules();
+    }
 
 
 
@@ -61,9 +227,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function loadReminders() {
-        chrome.storage.local.get(['reminders'], (result) => {
+        chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
             const reminders = result.reminders || [];
+            const rules = result.monitorRules || [];
             displayReminders(reminders);
+            smartReorderFeed(reminders, rules);
         });
     }
 
@@ -119,11 +287,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const id = `monitor-${Date.now()}`;
+        const taskName = document.getElementById('monitor-task').value;
         const rule = {
             id,
             url: currentUrl,
             type,
             value: val,
+            taskName: taskName, // New field
             isActive: true,
             restrictToPath: restrictToPath,
             autoStop: autoStop,
@@ -136,6 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chrome.storage.local.set({ monitorRules: rules }, () => {
                 monitorValue.value = '';
                 document.getElementById('path-lock').checked = false;
+                if (monitorInputCard) monitorInputCard.classList.remove('expanded');
                 loadMonitorRules();
             });
         });
@@ -154,9 +325,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function loadMonitorRules() {
-        chrome.storage.local.get(['monitorRules'], (result) => {
-            const allRules = result.monitorRules || [];
-            displayMonitorRules(allRules);
+        chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
+            const reminders = result.reminders || [];
+            const rules = result.monitorRules || [];
+            displayMonitorRules(rules);
+            smartReorderFeed(reminders, rules);
         });
     }
 
@@ -169,36 +342,66 @@ document.addEventListener('DOMContentLoaded', () => {
         let currentHostname = '';
         try { currentHostname = new URL(currentUrl).hostname; } catch (e) { }
 
-        const pageRules = allRules.filter(r => {
+        // 3-Tier Categorization
+        const activeThisSite = allRules.filter(r => {
+            if (!r.isActive) return false;
             try { return new URL(r.url).hostname === currentHostname; }
             catch (e) { return currentUrl.includes(r.url); }
         });
-        const otherRules = allRules.filter(r => {
+
+        const activeOtherSites = allRules.filter(r => {
+            if (!r.isActive) return false;
             try { return new URL(r.url).hostname !== currentHostname; }
             catch (e) { return !currentUrl.includes(r.url); }
         });
 
+        const inactiveRules = allRules.filter(r => !r.isActive).sort((a, b) => {
+            let aThis = false;
+            let bThis = false;
+            try { aThis = new URL(a.url).hostname === currentHostname; } catch(e) { aThis = currentUrl.includes(a.url); }
+            try { bThis = new URL(b.url).hostname === currentHostname; } catch(e) { bThis = currentUrl.includes(b.url); }
+            
+            if (aThis && !bThis) return -1;
+            if (!aThis && bThis) return 1;
+            return 0;
+        });
+
         monitorList.innerHTML = '';
 
-        if (pageRules.length > 0) {
+        // Tier 1: Active This Site
+        if (activeThisSite.length > 0) {
             const header = document.createElement('div');
-            header.className = 'list-header';
-            header.textContent = 'This Site';
+            header.className = 'list-header section-header-active';
+            header.innerHTML = '<span>📍 This Site</span>';
             monitorList.appendChild(header);
 
-            pageRules.forEach(rule => {
+            activeThisSite.forEach(rule => {
                 monitorList.appendChild(createRuleItem(rule));
             });
         }
 
-        if (otherRules.length > 0) {
+        // Tier 2: Active Other Sites
+        if (activeOtherSites.length > 0) {
             const header = document.createElement('div');
-            header.className = 'list-header';
+            header.className = 'list-header section-header-other';
             header.style.marginTop = '8px';
-            header.textContent = 'Other Sites';
+            header.innerHTML = '<span>🌐 Other Sites</span>';
             monitorList.appendChild(header);
 
-            otherRules.forEach(rule => {
+            activeOtherSites.forEach(rule => {
+                monitorList.appendChild(createRuleItem(rule));
+            });
+        }
+
+        // Tier 3: Inactive / History
+        if (inactiveRules.length > 0) {
+            const header = document.createElement('div');
+            header.className = 'list-header section-header-inactive';
+            header.style.marginTop = '12px';
+            header.innerHTML = '<span>💤 Inactive / History</span>';
+            monitorList.appendChild(header);
+
+            inactiveRules.forEach(rule => {
                 monitorList.appendChild(createRuleItem(rule));
             });
         }
@@ -223,7 +426,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try { 
             const urlObject = new URL(rule.url);
             hostname = urlObject.hostname; 
-            fullPath = urlObject.pathname; // 只保留路径，去除 search (query)
+            fullPath = urlObject.pathname;
             if (fullPath === '/') fullPath = '';
         } catch (e) { 
             hostname = rule.url; 
@@ -237,24 +440,40 @@ document.addEventListener('DOMContentLoaded', () => {
         const autoStopLabel = isAutoStop ? 'ONCE' : 'CONT';
         const autoStopIcon = isAutoStop ? '🛑' : '🔄';
 
+        const isTaskBound = !!rule.taskName;
+        const lockedStyle = isTaskBound ? 'opacity: 0.5; cursor: not-allowed;' : '';
+        const pathTitle = isTaskBound ? 'Locked to Path by Task' : `Switch Scope: ${scopeLabel}`;
+        const stopTitle = isTaskBound ? 'Locked to CONT by Task' : `Switch Behavior: ${autoStopLabel}`;
+
         item.innerHTML = `
             <div class="monitor-content" style="opacity: ${opacities};">
-                <div class="monitor-main">
-                    <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" title="Current scope: ${scopeLabel}. Click to switch.">
-                        <span class="scope-icon" style="font-size: 10px;">${scopeIcon}</span>
-                        <span class="scope-text">${scopeLabel}</span>
-                    </div>
+                <!-- Row 1: Value & Origin -->
+                <div class="monitor-row monitor-row-top">
                     <div class="monitor-value-container">
-                        <span class="monitor-value" data-full-text="${rule.value}">${rule.value}</span>
                         <span class="badge ${badgeClass}">${badgeLabel}</span>
+                        <span class="monitor-value" data-full-text="${rule.value}">${rule.value}</span>
                     </div>
+                    <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
                 </div>
-                <div class="monitor-meta">
-                    <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" title="Trigger behavior: ${isAutoStop ? 'Stop after trigger (Once)' : 'Keep monitoring (Continuous)'}. Click to switch." ${!isAutoStop ? 'style="background: rgba(255, 255, 255, 0.05); color: #ccc;"' : ''}>
-                        <span class="scope-icon" style="font-size: 10px; margin-right: 2px;">${autoStopIcon}</span>
-                        <span class="scope-text">${autoStopLabel}</span>
+                
+                <!-- Row 2: Controls -->
+                <div class="monitor-row monitor-row-bottom">
+                    <div class="monitor-controls-group">
+                        <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" style="${lockedStyle}" title="${pathTitle}">
+                            <span class="scope-icon">${scopeIcon}</span>
+                            <span class="scope-text">${scopeLabel}</span>
+                        </div>
+                        <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" style="${lockedStyle}" title="${stopTitle}">
+                            <span class="scope-icon">${autoStopIcon}</span>
+                            <span class="scope-text">${autoStopLabel}</span>
+                        </div>
+                        <div class="monitor-task-selector">
+                            <select class="rule-task-select" data-id="${rule.id}" title="Task triggered on element match">
+                                <option value="">No Task</option>
+                                ${discoveredTasks.map(t => `<option value="${t.id}" ${rule.taskName === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+                            </select>
+                        </div>
                     </div>
-                    <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">Origin: ${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
                 </div>
             </div>
             <div class="monitor-actions">
@@ -265,6 +484,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <button class="delete-btn" data-id="${rule.id}">×</button>
             </div>
         `;
+
+        const taskSelect = item.querySelector('.rule-task-select');
+        if (taskSelect) {
+            taskSelect.addEventListener('change', (e) => updateRuleTask(rule.id, e.target.value));
+        }
 
         const scopeBadge = item.querySelector('.monitor-scope:not(.monitor-autostop)');
         if (scopeBadge) {
@@ -282,6 +506,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const delBtn = item.querySelector('.delete-btn');
         delBtn.addEventListener('click', () => removeMonitorRule(rule.id));
 
+        // Click to copy logic
+        const valueEl = item.querySelector('.monitor-value');
+        if (valueEl) {
+            valueEl.addEventListener('click', (e) => {
+                const text = valueEl.getAttribute('data-full-text') || valueEl.textContent;
+                navigator.clipboard.writeText(text).then(() => {
+                    // Feedback in global tooltip
+                    const originalText = globalTooltip.textContent;
+                    globalTooltip.textContent = 'Copied! ✅';
+                    globalTooltip.style.color = '#00ff00';
+                    setTimeout(() => {
+                        globalTooltip.textContent = originalText;
+                        globalTooltip.style.color = '';
+                    }, 800);
+                });
+            });
+        }
+
         return item;
     }
 
@@ -291,6 +533,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const rule = rules.find(r => r.id === id);
             
             if (!rule) return;
+
+            // Defensive lock: Prevent switching back to Site if a task is bound
+            if (rule.taskName && !restrictToPath) {
+                return;
+            }
 
             let newUrl = rule.url;
 
@@ -329,6 +576,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function toggleRuleAutoStop(id, autoStop) {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
+            
+            // Defensive lock: check if trying to set ONCE while a task is running
+            const ruleObj = rules.find(r => r.id === id);
+            if (ruleObj && ruleObj.taskName && autoStop) {
+                 return;
+            }
+
             const updatedRules = rules.map(rule => {
                 if (rule.id === id) {
                     return { ...rule, autoStop };
@@ -364,6 +618,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clearAllMonitors() {
         chrome.storage.local.set({ monitorRules: [] }, loadMonitorRules);
+    }
+
+    function updateRuleTask(id, taskName) {
+        chrome.storage.local.get(['monitorRules'], (result) => {
+            const rules = result.monitorRules || [];
+            
+            const taskObj = discoveredTasks.find(t => t.id === taskName);
+            const taskTimeoutMinutes = taskObj ? taskObj.timeoutMinutes : 30;
+
+            const updatedRules = rules.map(rule => {
+                if (rule.id === id) {
+                    if (taskName) {
+                        const previousScopeWasSite = !rule.restrictToPath;
+                        const wasSite = rule.taskName ? (rule.originalWasSite || false) : previousScopeWasSite;
+                        
+                        return { 
+                            ...rule, 
+                            taskName,
+                            taskTimeoutMinutes,
+                            restrictToPath: true,
+                            url: currentUrl,
+                            autoStop: false,
+                            originalWasSite: wasSite
+                        };
+                    } else {
+                        return {
+                            ...rule,
+                            taskName: '',
+                            taskTimeoutMinutes: null
+                        };
+                    }
+                }
+                return rule;
+            });
+            chrome.storage.local.set({ monitorRules: updatedRules }, loadMonitorRules);
+        });
     }
 
     function formatRemainingTime(ms) {
@@ -434,6 +724,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTooltip();
 
     setInterval(() => {
-        loadReminders();
+        updateTimeDisplays();
     }, 1000);
 });
