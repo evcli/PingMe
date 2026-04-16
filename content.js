@@ -51,7 +51,7 @@ let mutationTimeout = null;
 
 function startMonitoring() {
   if (observer) return; // Prevent multiple observers
-  
+
   // Use a throttled observer to prevent high CPU usage on pages with frequent DOM changes
   observer = new MutationObserver((mutations) => {
     if (!mutationTimeout) {
@@ -111,12 +111,13 @@ function checkRules() {
     // Trigger notification only on transition from false -> true
     if (currentlyMet && !ruleStates[rule.id]) {
       ruleStates[rule.id] = true; // Instantly lock state to prevent race conditions during async tasks
-      
-      const sendMessage = (msg) => {
+
+      const sendMessage = (msg, extraProps = {}) => {
         chrome.runtime.sendMessage({
           type: 'MONITOR_TRIGGERED',
           ruleId: rule.id,
-          message: msg
+          message: msg,
+          ...extraProps
         }, (response) => {
           if (chrome.runtime.lastError) {
             console.error('[PingMe] Notification failed:', chrome.runtime.lastError.message);
@@ -130,23 +131,25 @@ function checkRules() {
           .then(taskResult => {
             let isSuccess = true;
             let msg = '';
+            let isFinished = false;
             if (taskResult && typeof taskResult === 'object' && 'success' in taskResult) {
               isSuccess = taskResult.success;
               msg = taskResult.message || '';
+              if (taskResult.finished === true) isFinished = true;
             } else {
               msg = String(taskResult);
             }
 
             if (isSuccess) {
-              sendMessage(`[Success] ${msg}`);
+              sendMessage(`[Success] ${msg}`, { finished: isFinished });
             } else {
-              sendMessage(`[Failed] ${rule.taskName}: ${msg}`);
+              sendMessage(`[Failed] ${rule.taskName}: ${msg}`, { finished: isFinished });
             }
           })
           .catch(error => {
             console.warn(`[PingMe] Task ${rule.taskName} failed:`, error);
             const errorMsg = error instanceof Error ? error.message : String(error);
-            sendMessage(`[Failed] ${rule.taskName}: ${errorMsg}`);
+            sendMessage(`[Failed] ${rule.taskName}: ${errorMsg}`, { finished: true }); // Assume fatal error finished the pipeline
           });
       } else {
         sendMessage(`Condition reached for: ${rule.value} on ${window.location.hostname}`);

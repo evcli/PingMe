@@ -7,11 +7,11 @@ window.PipelineHelpers = {
         const rect = triggerElement.getBoundingClientRect();
         const clientX = rect.left + rect.width / 2;
         const clientY = rect.top + rect.height / 2;
-        
+
         ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'mousemove'].forEach(eventType => {
             const isPointer = eventType.startsWith('pointer');
             const EventClass = isPointer ? PointerEvent : MouseEvent;
-            
+
             const eventInit = {
                 bubbles: true,
                 cancelable: true,
@@ -21,7 +21,7 @@ window.PipelineHelpers = {
                 relatedTarget: document.body,
                 ...(isPointer ? { pointerId: 1, pointerType: 'mouse' } : {})
             };
-            
+
             triggerElement.dispatchEvent(new EventClass(eventType, eventInit));
         });
 

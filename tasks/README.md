@@ -1,58 +1,61 @@
 # PingMe Automation Tasks
 
-This folder contains automation scripts ("Tasks") for specific web pages.
+This folder contains automation scripts ("Tasks") that run dynamically on top of your web monitors. 
 
-## 1. Task Standard
+## 1. How a Task Works
 
-Every task script must follow these requirements to be discovered by the UI:
+Think of a Task as a parasitic program:
+1. You bind it to a UI trigger in the PingMe extension.
+2. It executes multiple times as long as it's active.
+3. The Task decides when it is truly **done**.
+4. Upon reporting `finished: true`, PingMe automatically detaches the task and cleans up the background alarms.
 
-### File Naming
-- **Location**: Put scripts in a subfolder within `tasks/` (e.g., `tasks/pipeline/`).
-- **Prefix**: Filenames **must** start with `task_` (e.g., `task_confirm_deploy.js`).
+## 2. Task Standard & Code Structure
 
-### Code Structure
-Call `PingMe.registerTask` with the ID format `folder:filename_without_prefix`.
+Every task script must follow these conventions:
+
+- **Naming**: Put scripts inside a folder, starting with `task_` (e.g., `tasks/pipeline/task_deploy.js`).
+- **Registration**: Use `PingMe.registerTask(id, handler, config)`. 
+- **Timeouts**: Always define a `timeoutMinutes` in the config list. If the task gets stuck, the system will force-kill it after this time.
 
 ```javascript
-// Example: tasks/pipeline/task_deploy.js -> ID: 'pipeline:deploy'
+// Example: tasks/pipeline/task_deploy.js 
+// Registration ID format: 'folderName:fileNameWithoutPrefix'
 
-PingMe.registerTask('pipeline:deploy', async (targetElement) => {
-    // 1. Your automation logic here
-    // targetElement is the DOM node that triggered the rule
+PingMe.registerTask('pipeline:deploy', async (triggerElement) => {
+    // 1. Perform DOM interactions (clicks, polling, extracting)
+    const button = document.querySelector('.submit-btn');
+    if (!button) {
+        // If critical failure, report finished to unbind immediately
+        return { success: false, message: 'Button missing', finished: true }; 
+    }
     
-    // 2. Return a result object with a success flag and message.
-    // Error objects (success: false) will trigger a failure notification
-    // without polluting Chrome's background error logs.
-    return { success: true, message: "Deployment confirmed!" };
-});
+    // 2. Do the action
+    button.click();
+
+    // 3. Return your state. 
+    // If it's a multi-step process and you aren't done yet, omit `finished`.
+    // If this is the final step in the pipeline, pass `finished: true` to trigger cleanup!
+    return { success: true, message: "Deploy step complete", finished: true };
+
+}, { timeoutMinutes: 15 }); // Safety limit: System unbinds it after 15 mins if it hangs
 ```
 
----
+## 3. How to Add a New Task
 
-## 2. How to Add a New Task
+1.  **Create File**: e.g., `tasks/jira/task_auto_reply.js`.
+2.  **Write Code**: Implement following the structure above.
+3.  **Inject**: Open the root `manifest.json` and add `"tasks/jira/task_auto_reply.js"` inside the `content_scripts -> js` array.
+4.  **Reload**: Refresh the extension in Chrome. The task instantly appears in the PingMe popup!
 
-1.  **Create the script**: Create `tasks/your_folder/task_your_name.js`.
-2.  **Logic**: Implement using the structure above.
-3.  **Register**: Open `manifest.json` and add your file path to `content_scripts`.
-4.  **Reload**: Refresh the extension in `chrome://extensions`.
-5.  **Select**: The task will now appear in the "Task" dropdown in the PingMe popup.
+## 4. How to Test a Task Manually
 
----
+You can directly invoke any registered task inside the browser for rapid debugging:
 
-## 3. How to Test a Task
-
-You can manually trigger any registered task in the browser console for debugging:
-
-1.  **Switch Context**: Open Chrome DevTools Console, find the **`top`** dropdown (above the console input), and select **`PingMe`**.
-2.  **Pick Element**: Select an element in the "Elements" tab (it becomes `$0`).
-3.  **Run**: Execute the task using its ID:
+1. Open Chrome DevTools (F12) Console on the target website.
+2. Find the **Execution Context** dropdown (it says `top` by default) and switch it to **`PingMe`**.
+3. Go to the "Elements" panel, right-click the element you want to simulate as the trigger, and select `Store as global variable` or simply leave it selected (it becomes `$0`).
+4. Execute your task in the PingMe console:
     ```javascript
     await PingMe.tasks['pipeline:deploy']($0);
     ```
-
----
-
-## 4. Folder Structure Reference
-- `core.js`: Task registry and bridge (Don't edit).
-- `pipeline/utils.js`: Shared helpers (e.g., hover simulations).
-- `pipeline/task_*.js`: Specific tasks for pipeline pages.

@@ -171,8 +171,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const taskId = folderPath ? `${folderPath}:${fileName}` : fileName;
                 const taskDisplayName = taskId;
                 
+                const timeoutMatch = content.match(/timeoutMinutes:\s*(\d+)/);
+                const timeoutMinutes = timeoutMatch ? parseInt(timeoutMatch[1], 10) : 30;
+                
                 // Save to global list
-                discoveredTasks.push({ id: taskId, name: taskDisplayName });
+                discoveredTasks.push({ id: taskId, name: taskDisplayName, timeoutMinutes });
 
                 const option = document.createElement('option');
                 option.value = taskId;
@@ -437,6 +440,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const autoStopLabel = isAutoStop ? 'ONCE' : 'CONT';
         const autoStopIcon = isAutoStop ? '🛑' : '🔄';
 
+        const isTaskBound = !!rule.taskName;
+        const lockedStyle = isTaskBound ? 'opacity: 0.5; cursor: not-allowed;' : '';
+        const pathTitle = isTaskBound ? 'Locked to Path by Task' : `Switch Scope: ${scopeLabel}`;
+        const stopTitle = isTaskBound ? 'Locked to CONT by Task' : `Switch Behavior: ${autoStopLabel}`;
+
         item.innerHTML = `
             <div class="monitor-content" style="opacity: ${opacities};">
                 <!-- Row 1: Value & Origin -->
@@ -451,11 +459,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <!-- Row 2: Controls -->
                 <div class="monitor-row monitor-row-bottom">
                     <div class="monitor-controls-group">
-                        <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" title="Switch Scope: ${scopeLabel}">
+                        <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" style="${lockedStyle}" title="${pathTitle}">
                             <span class="scope-icon">${scopeIcon}</span>
                             <span class="scope-text">${scopeLabel}</span>
                         </div>
-                        <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" title="Switch Behavior: ${autoStopLabel}">
+                        <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" style="${lockedStyle}" title="${stopTitle}">
                             <span class="scope-icon">${autoStopIcon}</span>
                             <span class="scope-text">${autoStopLabel}</span>
                         </div>
@@ -526,6 +534,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!rule) return;
 
+            // Defensive lock: Prevent switching back to Site if a task is bound
+            if (rule.taskName && !restrictToPath) {
+                return;
+            }
+
             let newUrl = rule.url;
 
             if (restrictToPath) {
@@ -563,6 +576,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function toggleRuleAutoStop(id, autoStop) {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
+            
+            // Defensive lock: check if trying to set ONCE while a task is running
+            const ruleObj = rules.find(r => r.id === id);
+            if (ruleObj && ruleObj.taskName && autoStop) {
+                 return;
+            }
+
             const updatedRules = rules.map(rule => {
                 if (rule.id === id) {
                     return { ...rule, autoStop };
@@ -603,14 +623,36 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateRuleTask(id, taskName) {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
+            
+            const taskObj = discoveredTasks.find(t => t.id === taskName);
+            const taskTimeoutMinutes = taskObj ? taskObj.timeoutMinutes : 30;
+
             const updatedRules = rules.map(rule => {
                 if (rule.id === id) {
-                    return { ...rule, taskName };
+                    if (taskName) {
+                        const previousScopeWasSite = !rule.restrictToPath;
+                        const wasSite = rule.taskName ? (rule.originalWasSite || false) : previousScopeWasSite;
+                        
+                        return { 
+                            ...rule, 
+                            taskName,
+                            taskTimeoutMinutes,
+                            restrictToPath: true,
+                            url: currentUrl,
+                            autoStop: false,
+                            originalWasSite: wasSite
+                        };
+                    } else {
+                        return {
+                            ...rule,
+                            taskName: '',
+                            taskTimeoutMinutes: null
+                        };
+                    }
                 }
                 return rule;
             });
-            chrome.storage.local.set({ monitorRules: updatedRules });
-            // No need to reload list here as select state is already correct UI-wise
+            chrome.storage.local.set({ monitorRules: updatedRules }, loadMonitorRules);
         });
     }
 

@@ -38,15 +38,65 @@ function updateExtensionIcon() {
 chrome.runtime.onInstalled.addListener(updateExtensionIcon);
 chrome.runtime.onStartup.addListener(updateExtensionIcon);
 
-// Listen for storage changes to update icon
+// Listen for storage changes to update icon and manage task timeouts
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.reminders || changes.monitorRules)) {
+  if (area === 'local' && changes.monitorRules) {
+    const oldRules = changes.monitorRules.oldValue || [];
+    const newRules = changes.monitorRules.newValue || [];
+
+    newRules.forEach(newRule => {
+      const oldRule = oldRules.find(r => r.id === newRule.id) || {};
+
+      const taskBoundOrActivated = newRule.taskName && newRule.isActive &&
+        (!oldRule.isActive || oldRule.taskName !== newRule.taskName);
+
+      if (taskBoundOrActivated) {
+        const timeoutMins = newRule.taskTimeoutMinutes || 30;
+        chrome.alarms.create(`timeout-${newRule.id}`, { delayInMinutes: timeoutMins });
+      } else if (!newRule.taskName && oldRule.taskName) {
+        chrome.alarms.clear(`timeout-${newRule.id}`);
+      } else if (!newRule.isActive && oldRule.isActive) {
+        chrome.alarms.clear(`timeout-${newRule.id}`);
+      }
+    });
+    updateExtensionIcon();
+  } else if (area === 'local' && changes.reminders) {
     updateExtensionIcon();
   }
 });
 
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name.startsWith('timeout-')) {
+    const ruleId = alarm.name.replace('timeout-', '');
+    chrome.storage.local.get(['monitorRules'], (result) => {
+      const rules = result.monitorRules || [];
+      const updatedRules = rules.map(rule => {
+        if (rule.id === ruleId && rule.taskName) {
+          chrome.notifications.create(`timeout-notify-${Date.now()}`, {
+            type: 'basic',
+            iconUrl: 'icons/icon128.png',
+            title: 'Task Timeout',
+            message: `Task ${rule.taskName} timed out. Task detached.`,
+            priority: 2,
+            requireInteraction: true
+          });
+
+          return {
+            ...rule,
+            taskName: '',
+            taskTimeoutMinutes: null,
+            restrictToPath: !(rule.originalWasSite),
+            url: rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url
+          };
+        }
+        return rule;
+      });
+      chrome.storage.local.set({ monitorRules: updatedRules });
+    });
+    return;
+  }
+
   const reminderId = alarm.name;
 
   chrome.storage.local.get(['reminders'], (result) => {
@@ -84,17 +134,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     }
 
+    let title = 'PingMe Monitoring Alert';
+    if (request.finished) {
+      title = (request.message && request.message.includes('[Failed]')) ? 'PingMe Task Aborted' : 'PingMe Task Completed';
+    }
+
     chrome.notifications.create(notificationId, {
       type: 'basic',
       iconUrl: 'icons/icon128.png',
-      title: 'PingMe Monitoring Alert',
+      title: title,
       message: request.message,
       priority: 2,
       requireInteraction: true
     });
 
-    // Auto-disable the rule after it triggers (if enabled)
+    // Handle post-trigger rule states
     if (request.ruleId) {
+      if (request.finished) {
+        chrome.storage.local.get(['monitorRules'], (result) => {
+          const rules = result.monitorRules || [];
+          const updatedRules = rules.map(rule => {
+            if (rule.id === request.ruleId) {
+              return {
+                ...rule,
+                taskName: '',
+                taskTimeoutMinutes: null,
+                restrictToPath: !(rule.originalWasSite),
+                url: rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url
+              };
+            }
+            return rule;
+          });
+          chrome.storage.local.set({ monitorRules: updatedRules });
+        });
+
+        sendResponse({ success: true });
+        return;
+      }
+
       chrome.storage.local.get(['monitorRules'], (result) => {
         const rules = result.monitorRules || [];
         const updatedRules = rules.map(rule => {
