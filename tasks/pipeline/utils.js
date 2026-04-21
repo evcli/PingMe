@@ -2,6 +2,10 @@
 
 window.PipelineHelpers = {
     async waitForPopover(triggerElement) {
+        // Ensure element is in view if pipeline is long
+        triggerElement.scrollIntoView({ block: 'center', inline: 'center' });
+        // wait for scroll to potentially finish or settle
+        await new Promise(r => setTimeout(r, 100));
 
         // Trigger hover
         const rect = triggerElement.getBoundingClientRect();
