@@ -121,6 +121,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   });
 });
 
+// Sequential update queue to prevent race conditions during multiple rapid triggers
+let monitorUpdateQueue = Promise.resolve();
+
 // Handle messages from content script for monitoring
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'MONITOR_TRIGGERED') {
@@ -148,43 +151,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       requireInteraction: true
     });
 
-    // Handle post-trigger rule states
+    // Handle post-trigger rule states sequentially to avoid race conditions
     if (request.ruleId) {
-      if (request.finished) {
-        chrome.storage.local.get(['monitorRules'], (result) => {
-          const rules = result.monitorRules || [];
-          const updatedRules = rules.map(rule => {
-            if (rule.id === request.ruleId) {
-              return {
-                ...rule,
-                taskName: '',
-                taskTimeoutMinutes: null,
-                restrictToPath: !(rule.originalWasSite),
-                url: rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url
-              };
-            }
-            return rule;
+      monitorUpdateQueue = monitorUpdateQueue.then(() => {
+        return new Promise((resolve) => {
+          chrome.storage.local.get(['monitorRules'], (result) => {
+            const rules = result.monitorRules || [];
+            const updatedRules = rules.map(rule => {
+              if (rule.id === request.ruleId) {
+                let updatedRule = { ...rule };
+                const isTaskBound = !!rule.taskName;
+                const isAutoStop = rule.autoStop !== false;
+
+                // 1. Handle Task Unmounting
+                if (request.finished && isTaskBound) {
+                  updatedRule.taskName = '';
+                  updatedRule.taskTimeoutMinutes = null;
+                  updatedRule.restrictToPath = !(rule.originalWasSite);
+                  updatedRule.url = rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url;
+                }
+
+                // 2. Handle Monitor Auto-Stop (ONCE mode)
+                if (isAutoStop) {
+                  if (isTaskBound) {
+                    if (request.finished) {
+                      updatedRule.isActive = false;
+                    }
+                  } else {
+                    updatedRule.isActive = false;
+                  }
+                }
+
+                return updatedRule;
+              }
+              return rule;
+            });
+            chrome.storage.local.set({ monitorRules: updatedRules }, resolve);
           });
-          chrome.storage.local.set({ monitorRules: updatedRules });
         });
-
-        sendResponse({ success: true });
-        return;
-      }
-
-      chrome.storage.local.get(['monitorRules'], (result) => {
-        const rules = result.monitorRules || [];
-        const updatedRules = rules.map(rule => {
-          if (rule.id === request.ruleId) {
-            // Default to true for older rules
-            const autoStop = rule.autoStop !== false;
-            if (autoStop) {
-              return { ...rule, isActive: false };
-            }
-          }
-          return rule;
-        });
-        chrome.storage.local.set({ monitorRules: updatedRules });
       });
     }
 

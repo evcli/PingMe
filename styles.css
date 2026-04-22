@@ -549,6 +549,15 @@ button:active {
     background: rgba(255, 255, 255, 0.15);
 }
 
+.monitor-scope.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.monitor-scope.disabled:hover {
+    background: rgba(255, 255, 255, 0.08); /* Keep original background on hover */
+}
+
 .monitor-scope.active {
     background: rgba(0, 242, 254, 0.1);
     color: var(--accent);

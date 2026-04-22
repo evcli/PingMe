@@ -20,12 +20,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateLiveStatus = (reminders) => {
         const nextAlarmText = document.getElementById('next-alarm-text');
         const statusDot = document.querySelector('.status-dot');
-        
+
         if (reminders.length > 0) {
             const sorted = [...reminders].sort((a, b) => a.triggerTime - b.triggerTime);
             const next = sorted[0];
             const remainingMs = next.triggerTime - Date.now();
-            
+
             if (remainingMs > 0) {
                 nextAlarmText.textContent = formatRemainingTime(remainingMs);
                 statusDot.style.background = '#00f2fe';
@@ -57,6 +57,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const isSameDomain = (url1, url2) => {
+        try {
+            const h1 = new URL(url1).hostname;
+            const h2 = new URL(url2).hostname;
+            return h1 === h2;
+        } catch (e) {
+            // Fallback for non-URL strings or partial matches
+            return url1.includes(url2) || url2.includes(url1);
+        }
+    };
+
     const smartReorderFeed = (reminders, rules) => {
         const monitorContainer = document.getElementById('monitor-list-container');
         const reminderContainer = document.getElementById('reminder-list-container');
@@ -65,8 +76,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!monitorContainer || !reminderContainer || !dashboard) return;
 
         let currentHostname = '';
-        try { currentHostname = new URL(currentUrl).hostname; } catch (e) {}
-        
+        try { currentHostname = new URL(currentUrl).hostname; } catch (e) { }
+
         const hasPageRules = rules.some(r => {
             try { return new URL(r.url).hostname === currentHostname; }
             catch (e) { return currentUrl.includes(r.url); }
@@ -82,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dashboard.prepend(reminderContainer);
             }
         }
-        
+
         // Visibility - Use opacity or classes if frequent, but display toggle is okay if content doesn't change
         const monitorTargetDisplay = hasPageRules ? 'block' : (rules.length > 0 ? 'block' : 'none');
         if (monitorContainer.style.display !== monitorTargetDisplay) {
@@ -93,13 +104,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (reminderContainer.style.display !== reminderTargetDisplay) {
             reminderContainer.style.display = reminderTargetDisplay;
         }
-        
+
         updateLiveStatus(reminders);
     };
 
     const updateTimeDisplays = () => {
         const reminders = cachedReminders;
-        
+
         // 1. Update the items in the list
         document.querySelectorAll('#reminder-list .item').forEach(item => {
             const delBtn = item.querySelector('.delete-btn');
@@ -122,12 +133,12 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (chromeTabs) => {
         if (chromeTabs[0]) {
             currentUrl = chromeTabs[0].url;
-            
+
             chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
                 const reminders = result.reminders || [];
                 cachedReminders = reminders; // Initialize cache
                 const rules = result.monitorRules || [];
-                
+
                 displayReminders(reminders);
                 displayMonitorRules(rules);
                 smartReorderFeed(reminders, rules);
@@ -160,20 +171,23 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const response = await fetch(chrome.runtime.getURL(file));
                 const content = await response.text();
-                
+
                 // Get path relative to 'tasks/' and clean up filename
                 const relativePath = file.replace('tasks/', '');
                 const parts = relativePath.split('/');
                 const fileName = parts.pop().replace('.js', '').replace(/^task_/, '');
                 const folderPath = parts.join('/');
-                
+
                 // Final ID and display name: folder:name (e.g., pipeline:deploy)
                 const taskId = folderPath ? `${folderPath}:${fileName}` : fileName;
                 const taskDisplayName = taskId;
-                
+
                 const timeoutMatch = content.match(/timeoutMinutes:\s*(\d+)/);
                 const timeoutMinutes = timeoutMatch ? parseInt(timeoutMatch[1], 10) : 30;
-                
+
+                const isHidden = content.includes('isHidden: true');
+                if (isHidden) continue;
+
                 // Save to global list
                 discoveredTasks.push({ id: taskId, name: taskDisplayName, timeoutMinutes });
 
@@ -345,22 +359,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // 3-Tier Categorization
         const activeThisSite = allRules.filter(r => {
             if (!r.isActive) return false;
-            try { return new URL(r.url).hostname === currentHostname; }
-            catch (e) { return currentUrl.includes(r.url); }
+            return isSameDomain(r.url, currentUrl);
         });
 
         const activeOtherSites = allRules.filter(r => {
             if (!r.isActive) return false;
-            try { return new URL(r.url).hostname !== currentHostname; }
-            catch (e) { return !currentUrl.includes(r.url); }
+            return !isSameDomain(r.url, currentUrl);
         });
 
         const inactiveRules = allRules.filter(r => !r.isActive).sort((a, b) => {
-            let aThis = false;
-            let bThis = false;
-            try { aThis = new URL(a.url).hostname === currentHostname; } catch(e) { aThis = currentUrl.includes(a.url); }
-            try { bThis = new URL(b.url).hostname === currentHostname; } catch(e) { bThis = currentUrl.includes(b.url); }
-            
+            const aThis = isSameDomain(a.url, currentUrl);
+            const bThis = isSameDomain(b.url, currentUrl);
+
             if (aThis && !bThis) return -1;
             if (!aThis && bThis) return 1;
             return 0;
@@ -423,13 +433,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let hostname = '';
         let fullPath = '';
-        try { 
+        try {
             const urlObject = new URL(rule.url);
-            hostname = urlObject.hostname; 
+            hostname = urlObject.hostname;
             fullPath = urlObject.pathname;
             if (fullPath === '/') fullPath = '';
-        } catch (e) { 
-            hostname = rule.url; 
+        } catch (e) {
+            hostname = rule.url;
         }
 
         const scopeLabel = rule.restrictToPath ? 'Path' : 'Site';
@@ -441,9 +451,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const autoStopIcon = isAutoStop ? '🛑' : '🔄';
 
         const isTaskBound = !!rule.taskName;
-        const lockedStyle = isTaskBound ? 'opacity: 0.5; cursor: not-allowed;' : '';
-        const pathTitle = isTaskBound ? 'Locked to Path by Task' : `Switch Scope: ${scopeLabel}`;
-        const stopTitle = isTaskBound ? 'Locked to CONT by Task' : `Switch Behavior: ${autoStopLabel}`;
+        const isSameSite = isSameDomain(rule.url, currentUrl);
+
+        // Logic: 
+        // 1. If a task is bound, it's locked to Path (req 1).
+        // 2. If no task:
+        //    - If currently "Path", user can ALWAYS switch to "Site" (widening scope).
+        //    - If currently "Site", user can ONLY switch to "Path" if on the same site (needs a path to bind to).
+        const canToggleScope = isTaskBound ? false : (rule.restrictToPath || isSameSite);
+        const scopeDisabledClass = !canToggleScope ? 'disabled' : '';
+        const pathTitle = isTaskBound ? 'Locked to Path by Task' :
+            (!canToggleScope ? 'Must be on this site to bind to a specific path' : `Switch Scope: ${scopeLabel}`);
+        const autoStopTitle = `Switch Behavior: ${autoStopLabel}`;
+
+        const taskDisabled = !isSameSite ? 'disabled' : '';
+        const taskTitle = !isSameSite ? `Switch to ${hostname} to manage tasks` : 'Task triggered on element match';
 
         item.innerHTML = `
             <div class="monitor-content" style="opacity: ${opacities};">
@@ -459,16 +481,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 <!-- Row 2: Controls -->
                 <div class="monitor-row monitor-row-bottom">
                     <div class="monitor-controls-group">
-                        <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''}" style="${lockedStyle}" title="${pathTitle}">
+                        <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''} ${scopeDisabledClass}" title="${pathTitle}">
                             <span class="scope-icon">${scopeIcon}</span>
                             <span class="scope-text">${scopeLabel}</span>
                         </div>
-                        <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" style="${lockedStyle}" title="${stopTitle}">
+                        <div class="monitor-scope monitor-autostop ${isAutoStop ? 'active' : ''}" title="${autoStopTitle}">
                             <span class="scope-icon">${autoStopIcon}</span>
                             <span class="scope-text">${autoStopLabel}</span>
                         </div>
-                        <div class="monitor-task-selector">
-                            <select class="rule-task-select" data-id="${rule.id}" title="Task triggered on element match">
+                        <div class="monitor-task-selector" style="${taskDisabled ? 'opacity: 0.5;' : ''}">
+                            <select class="rule-task-select" data-id="${rule.id}" title="${taskTitle}" ${taskDisabled}>
                                 <option value="">No Task</option>
                                 ${discoveredTasks.map(t => `<option value="${t.id}" ${rule.taskName === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
                             </select>
@@ -491,7 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const scopeBadge = item.querySelector('.monitor-scope:not(.monitor-autostop)');
-        if (scopeBadge) {
+        if (scopeBadge && canToggleScope) {
             scopeBadge.addEventListener('click', () => toggleRulePathLock(rule.id, !rule.restrictToPath));
         }
 
@@ -531,7 +553,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
             const rule = rules.find(r => r.id === id);
-            
+
             if (!rule) return;
 
             // Defensive lock: Prevent switching back to Site if a task is bound
@@ -543,28 +565,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (restrictToPath) {
                 // Trying to switch to 'Path' lock
-                try {
-                    const ruleHostname = new URL(rule.url).hostname;
-                    let currentHostname = '';
-                    try { currentHostname = new URL(currentUrl).hostname; } catch(e) {}
-                    
-                    if (ruleHostname !== currentHostname) {
-                        alert(`Cannot lock to path: You must be on the same domain (${ruleHostname}) to bind to a path.`);
-                        return; // Abort the change
-                    }
-                    // Since domains match, bind to the current path
-                    newUrl = currentUrl;
-                } catch (e) {
-                    console.error("URL Parsing error", e);
+                if (!isSameDomain(rule.url, currentUrl)) {
+                    return; // Abort
                 }
+                // Since domains match, bind to the current path
+                newUrl = currentUrl;
             }
 
             const updatedRules = rules.map(r => {
                 if (r.id === id) {
-                    return { 
-                        ...r, 
-                        restrictToPath, 
-                        url: newUrl 
+                    return {
+                        ...r,
+                        restrictToPath,
+                        url: newUrl
                     };
                 }
                 return r;
@@ -576,13 +589,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function toggleRuleAutoStop(id, autoStop) {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
-            
-            // Defensive lock: check if trying to set ONCE while a task is running
-            const ruleObj = rules.find(r => r.id === id);
-            if (ruleObj && ruleObj.taskName && autoStop) {
-                 return;
-            }
-
             const updatedRules = rules.map(rule => {
                 if (rule.id === id) {
                     return { ...rule, autoStop };
@@ -598,8 +604,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const rules = result.monitorRules || [];
             const updatedRules = rules.map(rule => {
                 if (rule.id === id) {
-                    return { 
-                        ...rule, 
+                    return {
+                        ...rule,
                         isActive
                     };
                 }
@@ -623,7 +629,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateRuleTask(id, taskName) {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
-            
+
             const taskObj = discoveredTasks.find(t => t.id === taskName);
             const taskTimeoutMinutes = taskObj ? taskObj.timeoutMinutes : 30;
 
@@ -632,14 +638,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (taskName) {
                         const previousScopeWasSite = !rule.restrictToPath;
                         const wasSite = rule.taskName ? (rule.originalWasSite || false) : previousScopeWasSite;
-                        
-                        return { 
-                            ...rule, 
+
+                        return {
+                            ...rule,
                             taskName,
                             taskTimeoutMinutes,
                             restrictToPath: true,
                             url: currentUrl,
-                            autoStop: false,
                             originalWasSite: wasSite
                         };
                     } else {
@@ -673,7 +678,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const handleOver = (e) => {
             const target = e.target.closest('[data-full-text]');
             if (!target) return;
-            
+
             // Ignore internal movements
             if (e.relatedTarget && target.contains(e.relatedTarget)) return;
 
@@ -682,9 +687,9 @@ document.addEventListener('DOMContentLoaded', () => {
             globalTooltip.style.display = 'block';
 
             const rect = target.getBoundingClientRect();
-            
+
             // Align position perfectly with the original text considering smaller padding (4px 8px)
-            let finalX = rect.left - 8; 
+            let finalX = rect.left - 8;
             let finalY = rect.top - 4;
 
             const width = globalTooltip.offsetWidth;
@@ -714,7 +719,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         document.body.addEventListener('mouseover', handleOver);
         document.body.addEventListener('mouseout', handleOut);
-        
+
         // Hide tooltip immediately on any scroll to prevent floating artifacts
         window.addEventListener('scroll', () => {
             globalTooltip.style.display = 'none';

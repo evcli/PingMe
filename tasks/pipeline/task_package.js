@@ -1,6 +1,6 @@
 // Commit -> Proceed | Promote -> Proceed
 
-PingMe.registerTask('pipeline:package', async (triggerElement) => {
+PingMe.registerTask(async (triggerElement) => {
   const popover = await PipelineHelpers.waitForPopover(triggerElement);
   if (!popover) return { success: false, message: 'Popover timeout', finished: true };
 

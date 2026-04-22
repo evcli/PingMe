@@ -36,6 +36,7 @@
         "tasks/pipeline/utils.js",
         "tasks/pipeline/task_deploy.js",
         "tasks/pipeline/task_package.js",
+        "tasks/test/task_pipeline.js",
         "content.js"
       ]
     }
