@@ -22,4 +22,4 @@ PingMe.registerTask(async (triggerElement) => {
   }
 
   return { success: false, message: 'Package: No matching action found.', finished: true };
-}, { timeoutMinutes: 90 });
+}, { timeoutMinutes: 120 });

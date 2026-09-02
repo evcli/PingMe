@@ -2,6 +2,7 @@
 
 let rules = [];
 let ruleStates = {}; // Track current state of each rule (is it currently met?)
+let currentTabId = null;
 
 // Utility for more robust URL matching (ignores trailing dots/slashes/hashes)
 function isUrlMatch(url1, url2, exact) {
@@ -26,20 +27,20 @@ function isUrlMatch(url1, url2, exact) {
   }
 }
 
-// Load rules for the current URL
+function getApplicableRules(allRules, currentUrl) {
+  return allRules.filter(rule => {
+    if (rule.isActive === false) return false;
+    if (rule.restrictToPath && rule.tabId !== currentTabId) return false;
+    return isUrlMatch(currentUrl, rule.url, rule.restrictToPath);
+  });
+}
+
+// Load rules for the current URL and, for Path rules, the current tab.
 function loadRules() {
   const currentUrl = window.location.href;
 
   chrome.storage.local.get(['monitorRules'], (result) => {
-    const allRules = result.monitorRules || [];
-    rules = allRules.filter(rule => {
-      // 1. Check if the rule is even active
-      if (rule.isActive === false) return false;
-
-      // 2. Check URL restriction
-      return isUrlMatch(currentUrl, rule.url, rule.restrictToPath);
-    });
-
+    rules = getApplicableRules(result.monitorRules || [], currentUrl);
     if (rules.length > 0) {
       startMonitoring();
     }
@@ -161,8 +162,12 @@ function checkRules() {
   }
 }
 
-// Initial load
-loadRules();
+// Initial load after obtaining the tab ID from the background service worker.
+chrome.runtime.sendMessage({ type: 'GET_TAB_ID' }, (response) => {
+  if (chrome.runtime.lastError) return;
+  currentTabId = response ? response.tabId : null;
+  loadRules();
+});
 
 // Re-load rules if storage changes (e.g., from popup)
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -170,13 +175,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     const currentUrl = window.location.href;
     const allRules = changes.monitorRules.newValue || [];
 
-    rules = allRules.filter(rule => {
-      // 1. Only active rules
-      if (rule.isActive === false) return false;
-
-      // 2. Exact Path or Domain match
-      return isUrlMatch(currentUrl, rule.url, rule.restrictToPath);
-    });
+    rules = getApplicableRules(allRules, currentUrl);
 
     if (rules.length > 0) {
       startMonitoring();

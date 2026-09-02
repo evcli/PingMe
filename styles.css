@@ -374,6 +374,11 @@ button:active {
     /* Space for hover overlaps */
 }
 
+#monitor-list {
+    max-height: min(390px, calc(100vh - 210px));
+    padding-bottom: 4px;
+}
+
 .list::-webkit-scrollbar {
     width: 4px;
 }
@@ -410,6 +415,24 @@ button:active {
     color: #888;
     background: rgba(255, 255, 255, 0.02);
     opacity: 0.4;
+}
+
+.clear-inactive-btn {
+    margin-left: auto;
+    padding: 2px 6px;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    color: inherit;
+    font-size: 9px;
+    line-height: 1;
+}
+
+.clear-inactive-btn:hover {
+    background: rgba(255, 59, 48, 0.2);
+    color: #ff3b30;
+    box-shadow: none;
+    transform: none;
 }
 
 .item {
@@ -724,7 +747,12 @@ input:checked+.slider:before {
 }
 
 .monitor-row-top {
-    margin-bottom: 2px;
+    align-items: flex-start;
+    margin-bottom: 0;
+}
+
+.monitor-row-origin {
+    min-width: 0;
 }
 
 .monitor-row-bottom {
@@ -749,11 +777,20 @@ input:checked+.slider:before {
 }
 
 .monitor-origin {
-    margin-top: 0;
-    text-align: right;
-    max-width: 120px; /* Constrain origin width in the row */
+    max-width: 100%;
+    text-align: left;
+    opacity: 0.65;
+}
+
+.monitor-origin-link {
+    cursor: pointer;
+}
+
+.monitor-origin-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
 }
 
 .monitor-value {
-    max-width: 140px;
+    max-width: none;
 }

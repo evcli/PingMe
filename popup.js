@@ -11,10 +11,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const addMonitorBtn = document.getElementById('add-monitor-btn');
     const clearAllMonitorsBtn = document.getElementById('clear-all-monitors-btn');
     const monitorList = document.getElementById('monitor-list');
+    const monitorTask = document.getElementById('monitor-task');
+    const pathLock = document.getElementById('path-lock');
 
     let currentUrl = '';
+    let currentTabId = null;
     let discoveredTasks = []; // Store tasks for reuse in list items
     let cachedReminders = []; // Local cache for timer countdown without hitting storage API
+
+    monitorTask.addEventListener('change', () => {
+        if (monitorTask.value) pathLock.checked = true;
+    });
+
+    pathLock.addEventListener('change', () => {
+        if (!pathLock.checked) monitorTask.value = '';
+    });
 
     // --- Smart Contextual UI Logic ---
     const updateLiveStatus = (reminders) => {
@@ -57,16 +68,37 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    const isSameDomain = (url1, url2) => {
+    const getHostname = (url) => {
         try {
-            const h1 = new URL(url1).hostname;
-            const h2 = new URL(url2).hostname;
-            return h1 === h2;
+            return new URL(url).hostname;
         } catch (e) {
-            // Fallback for non-URL strings or partial matches
-            return url1.includes(url2) || url2.includes(url1);
+            return url;
         }
     };
+
+    const isSameDomain = (url1, url2) => getHostname(url1) === getHostname(url2);
+
+    const isSamePath = (url1, url2) => {
+        try {
+            const first = new URL(url1);
+            const second = new URL(url2);
+            const normalizePath = (path) => path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+            return first.hostname === second.hostname && normalizePath(first.pathname) === normalizePath(second.pathname);
+        } catch (e) {
+            return url1 === url2;
+        }
+    };
+
+    const summarizeFromEnd = (text, maxLength) =>
+        text.length > maxLength ? `…${text.slice(1 - maxLength)}` : text;
+
+    const escapeHtml = (text) => String(text).replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[character]);
 
     const smartReorderFeed = (reminders, rules) => {
         const monitorContainer = document.getElementById('monitor-list-container');
@@ -75,13 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!monitorContainer || !reminderContainer || !dashboard) return;
 
-        let currentHostname = '';
-        try { currentHostname = new URL(currentUrl).hostname; } catch (e) { }
-
-        const hasPageRules = rules.some(r => {
-            try { return new URL(r.url).hostname === currentHostname; }
-            catch (e) { return currentUrl.includes(r.url); }
-        });
+        const hasPageRules = rules.some(r => isSameDomain(r.url, currentUrl));
 
         // Smart Reordering: Only prepend if the order actually needs to change to prevent flicker
         if (hasPageRules) {
@@ -133,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (chromeTabs) => {
         if (chromeTabs[0]) {
             currentUrl = chromeTabs[0].url;
+            currentTabId = chromeTabs[0].id;
 
             chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
                 const reminders = result.reminders || [];
@@ -266,7 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
             item.innerHTML = `
                 <div class="item-info">
                     <span class="time">${timeStr}</span>
-                    <span class="note">${reminder.note}</span>
+                    <span class="note">${escapeHtml(reminder.note)}</span>
                 </div>
                 <button class="delete-btn" data-id="${reminder.id}">×</button>
             `;
@@ -291,7 +318,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const addMonitorRule = () => {
         const type = monitorType.value;
         const val = monitorValue.value.trim();
-        const restrictToPath = document.getElementById('path-lock').checked;
+        const taskName = monitorTask.value;
+        const restrictToPath = pathLock.checked;
         const autoStopEl = document.getElementById('auto-stop');
         const autoStop = autoStopEl ? autoStopEl.checked : true;
 
@@ -301,15 +329,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const id = `monitor-${Date.now()}`;
-        const taskName = document.getElementById('monitor-task').value;
         const rule = {
             id,
-            url: currentUrl,
+            url: restrictToPath ? currentUrl : getHostname(currentUrl),
             type,
             value: val,
             taskName: taskName, // New field
             isActive: true,
-            restrictToPath: restrictToPath,
+            restrictToPath,
+            ...(restrictToPath ? { tabId: currentTabId } : {}),
             autoStop: autoStop,
             createdAt: Date.now()
         };
@@ -319,7 +347,8 @@ document.addEventListener('DOMContentLoaded', () => {
             rules.push(rule);
             chrome.storage.local.set({ monitorRules: rules }, () => {
                 monitorValue.value = '';
-                document.getElementById('path-lock').checked = false;
+                monitorTask.value = '';
+                pathLock.checked = false;
                 if (monitorInputCard) monitorInputCard.classList.remove('expanded');
                 loadMonitorRules();
             });
@@ -353,13 +382,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        let currentHostname = '';
-        try { currentHostname = new URL(currentUrl).hostname; } catch (e) { }
+        // 4-Tier Categorization
+        const activeThisPath = allRules.filter(r => {
+            if (!r.isActive || !r.restrictToPath) return false;
+            return r.tabId === currentTabId && isSamePath(r.url, currentUrl);
+        });
 
-        // 3-Tier Categorization
         const activeThisSite = allRules.filter(r => {
             if (!r.isActive) return false;
-            return isSameDomain(r.url, currentUrl);
+            return isSameDomain(r.url, currentUrl) && !(r.restrictToPath && r.tabId === currentTabId && isSamePath(r.url, currentUrl));
         });
 
         const activeOtherSites = allRules.filter(r => {
@@ -378,11 +409,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         monitorList.innerHTML = '';
 
-        // Tier 1: Active This Site
+        // Tier 1: Active This Path
+        if (activeThisPath.length > 0) {
+            const header = document.createElement('div');
+            header.className = 'list-header section-header-active';
+            header.innerHTML = '<span>📍 This Path</span>';
+            monitorList.appendChild(header);
+
+            activeThisPath.forEach(rule => {
+                monitorList.appendChild(createRuleItem(rule));
+            });
+        }
+
+        // Tier 2: Active This Site
         if (activeThisSite.length > 0) {
             const header = document.createElement('div');
             header.className = 'list-header section-header-active';
-            header.innerHTML = '<span>📍 This Site</span>';
+            header.innerHTML = '<span>🌐 This Site</span>';
             monitorList.appendChild(header);
 
             activeThisSite.forEach(rule => {
@@ -390,7 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Tier 2: Active Other Sites
+        // Tier 3: Active Other Sites
         if (activeOtherSites.length > 0) {
             const header = document.createElement('div');
             header.className = 'list-header section-header-other';
@@ -403,12 +446,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Tier 3: Inactive / History
+        // Tier 4: Inactive / History
         if (inactiveRules.length > 0) {
             const header = document.createElement('div');
             header.className = 'list-header section-header-inactive';
             header.style.marginTop = '12px';
-            header.innerHTML = '<span>💤 Inactive / History</span>';
+            header.innerHTML = '<span>💤 Inactive / History</span><button class="clear-inactive-btn" title="Clear inactive monitors">Clear</button>';
+            header.querySelector('.clear-inactive-btn').addEventListener('click', clearInactiveMonitorRules);
             monitorList.appendChild(header);
 
             inactiveRules.forEach(rule => {
@@ -466,19 +510,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const taskDisabled = !isSameSite ? 'disabled' : '';
         const taskTitle = !isSameSite ? `Switch to ${hostname} to manage tasks` : 'Task triggered on element match';
+        const origin = `${hostname}${rule.restrictToPath ? fullPath : '/*'}`;
+        const summarizedValue = summarizeFromEnd(rule.value, 36);
+        const summarizedOrigin = summarizeFromEnd(origin, 48);
 
         item.innerHTML = `
             <div class="monitor-content" style="opacity: ${opacities};">
-                <!-- Row 1: Value & Origin -->
+                <!-- Row 1: Monitor Value -->
                 <div class="monitor-row monitor-row-top">
                     <div class="monitor-value-container">
                         <span class="badge ${badgeClass}">${badgeLabel}</span>
-                        <span class="monitor-value" data-full-text="${rule.value}">${rule.value}</span>
+                        <span class="monitor-value" data-full-text="${escapeHtml(rule.value)}">${escapeHtml(summarizedValue)}</span>
                     </div>
-                    <span class="monitor-origin" data-full-text="${hostname}${rule.restrictToPath ? fullPath : '/*'}">${hostname}${rule.restrictToPath ? fullPath : '/*'}</span>
+                </div>
+
+                <!-- Row 2: Scope -->
+                <div class="monitor-row monitor-row-origin">
+                    <span class="monitor-origin ${rule.restrictToPath ? 'monitor-origin-link' : ''}" data-full-text="${escapeHtml(origin)}">${scopeIcon} ${escapeHtml(summarizedOrigin)}</span>
                 </div>
                 
-                <!-- Row 2: Controls -->
+                <!-- Row 3: Controls -->
                 <div class="monitor-row monitor-row-bottom">
                     <div class="monitor-controls-group">
                         <div class="monitor-scope ${rule.restrictToPath ? 'active' : ''} ${scopeDisabledClass}" title="${pathTitle}">
@@ -528,6 +579,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const delBtn = item.querySelector('.delete-btn');
         delBtn.addEventListener('click', () => removeMonitorRule(rule.id));
 
+        const originEl = item.querySelector('.monitor-origin-link');
+        if (originEl) {
+            originEl.addEventListener('click', () => {
+                if (typeof rule.tabId !== 'number') return;
+
+                chrome.tabs.get(rule.tabId, (tab) => {
+                    if (chrome.runtime.lastError || !tab) return;
+
+                    chrome.windows.update(tab.windowId, { focused: true });
+                    chrome.tabs.update(tab.id, { active: true });
+                });
+            });
+        }
+
         // Click to copy logic
         const valueEl = item.querySelector('.monitor-value');
         if (valueEl) {
@@ -561,7 +626,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            let newUrl = rule.url;
+            let newUrl = restrictToPath ? currentUrl : getHostname(rule.url);
 
             if (restrictToPath) {
                 // Trying to switch to 'Path' lock
@@ -569,7 +634,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     return; // Abort
                 }
                 // Since domains match, bind to the current path
-                newUrl = currentUrl;
             }
 
             const updatedRules = rules.map(r => {
@@ -577,7 +641,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     return {
                         ...r,
                         restrictToPath,
-                        url: newUrl
+                        url: newUrl,
+                        tabId: restrictToPath ? currentTabId : null
                     };
                 }
                 return r;
@@ -604,6 +669,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const rules = result.monitorRules || [];
             const updatedRules = rules.map(rule => {
                 if (rule.id === id) {
+                    if (isActive && !rule.isActive) {
+                        const siteUrl = getHostname(rule.url);
+
+                        return {
+                            ...rule,
+                            isActive,
+                            restrictToPath: false,
+                            url: siteUrl,
+                            tabId: null,
+                            taskName: '',
+                            taskTimeoutMinutes: null,
+                            originalWasSite: true
+                        };
+                    }
+
                     return {
                         ...rule,
                         isActive
@@ -626,6 +706,13 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.storage.local.set({ monitorRules: [] }, loadMonitorRules);
     }
 
+    function clearInactiveMonitorRules() {
+        chrome.storage.local.get(['monitorRules'], (result) => {
+            const rules = (result.monitorRules || []).filter(rule => rule.isActive);
+            chrome.storage.local.set({ monitorRules: rules }, loadMonitorRules);
+        });
+    }
+
     function updateRuleTask(id, taskName) {
         chrome.storage.local.get(['monitorRules'], (result) => {
             const rules = result.monitorRules || [];
@@ -645,6 +732,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             taskTimeoutMinutes,
                             restrictToPath: true,
                             url: currentUrl,
+                            tabId: currentTabId,
                             originalWasSite: wasSite
                         };
                     } else {

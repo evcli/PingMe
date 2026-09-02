@@ -8,8 +8,9 @@ function updateExtensionIcon() {
   chrome.storage.local.get(['reminders', 'monitorRules'], (result) => {
     // Defensive check: ensure active status and count are correctly derived
     const remindersCount = Array.isArray(result.reminders) ? result.reminders.length : 0;
-    const monitorsCount = Array.isArray(result.monitorRules) ? result.monitorRules.length : 0;
-    const count = remindersCount + monitorsCount;
+    const monitorRules = Array.isArray(result.monitorRules) ? result.monitorRules : [];
+    const activeMonitorsCount = monitorRules.filter(rule => rule.isActive).length;
+    const count = remindersCount + activeMonitorsCount;
     const isActive = count > 0;
 
     const iconPath = isActive ? {
@@ -24,9 +25,12 @@ function updateExtensionIcon() {
 
     chrome.action.setIcon({ path: iconPath });
 
-    // Set badge text based on total count
-    if (isActive) {
-      chrome.action.setBadgeText({ text: count.toString() });
+    // Show active monitor count; retain the timer count when no monitor is active.
+    if (activeMonitorsCount > 0) {
+      chrome.action.setBadgeText({ text: activeMonitorsCount.toString() });
+      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+    } else if (remindersCount > 0) {
+      chrome.action.setBadgeText({ text: remindersCount.toString() });
       chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
     } else {
       chrome.action.setBadgeText({ text: '' });
@@ -43,6 +47,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.monitorRules) {
     const oldRules = changes.monitorRules.oldValue || [];
     const newRules = changes.monitorRules.newValue || [];
+
+    oldRules
+      .filter(oldRule => !newRules.some(newRule => newRule.id === oldRule.id))
+      .forEach(oldRule => chrome.alarms.clear(`timeout-${oldRule.id}`));
 
     newRules.forEach(newRule => {
       const oldRule = oldRules.find(r => r.id === newRule.id) || {};
@@ -87,7 +95,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
             taskName: '',
             taskTimeoutMinutes: null,
             restrictToPath: !(rule.originalWasSite),
-            url: rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url
+            url: rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url,
+            tabId: rule.originalWasSite ? null : rule.tabId
           };
         }
         return rule;
@@ -126,6 +135,11 @@ let monitorUpdateQueue = Promise.resolve();
 
 // Handle messages from content script for monitoring
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === 'GET_TAB_ID') {
+    sendResponse({ tabId: sender.tab ? sender.tab.id : null });
+    return;
+  }
+
   if (request.type === 'MONITOR_TRIGGERED') {
     const notificationId = `monitor-${Date.now()}`;
 
@@ -167,8 +181,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 if (request.finished && isTaskBound) {
                   updatedRule.taskName = '';
                   updatedRule.taskTimeoutMinutes = null;
-                  updatedRule.restrictToPath = !(rule.originalWasSite);
-                  updatedRule.url = rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url;
+
+                  // A Once rule becomes inactive below, so retain its Path and tabId
+                  // for a possible click-through from the Inactive list.
+                  if (!isAutoStop) {
+                    updatedRule.restrictToPath = !(rule.originalWasSite);
+                    updatedRule.url = rule.originalWasSite ? (function () { try { return new URL(rule.url).hostname; } catch (e) { return rule.url; } })() : rule.url;
+                    updatedRule.tabId = rule.originalWasSite ? null : rule.tabId;
+                  }
                 }
 
                 // 2. Handle Monitor Auto-Stop (ONCE mode)
